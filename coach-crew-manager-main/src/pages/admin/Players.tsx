@@ -3,13 +3,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Search, Edit, Trash2 } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Eye, Mail, Phone, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { adminApi } from "@/lib/api";
 import { Label } from "@/components/ui/label";
+import { useSeason } from "@/contexts/SeasonContext";
+import { api } from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const Players = () => {
   const { toast } = useToast();
+  const { activeSeasonId } = useSeason();
   const [searchQuery, setSearchQuery] = useState("");
   const [disciplineFilter, setDisciplineFilter] = useState<string>("all");
   const [rows, setRows] = useState<Array<{ _id: string; name?: string; email?: string; phone?: string; photo?: string; sport?: string }>>([]);
@@ -20,12 +25,16 @@ const Players = () => {
   const [form, setForm] = useState<{ name: string; email: string; phone: string; sport: string }>({ name: "", email: "", phone: "", sport: "football" });
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string>("");
+  const [viewPlayer, setViewPlayer] = useState<{ _id: string; name?: string; email?: string; phone?: string; photo?: string; sport?: string } | null>(null);
 
   useEffect(() => {
+    if (!activeSeasonId) return; // Don't fetch if no season selected
+    
     (async () => {
       setLoading(true);
       try {
-        const { data } = await adminApi.players.list();
+        // Pass season query parameter
+        const { data } = await api.get(`/api/players?season=${activeSeasonId}`);
         setRows(data.players || []);
       } catch (err: any) {
         toast({ title: "Failed to load players", description: err?.response?.data?.message || "Please try again", variant: "destructive" });
@@ -33,7 +42,13 @@ const Players = () => {
         setLoading(false);
       }
     })();
-  }, [toast]);
+  }, [activeSeasonId, toast]);
+
+  // Get unique sports from current players
+  const availableSports = useMemo(() => {
+    const sports = new Set(rows.map(p => p.sport || "football"));
+    return Array.from(sports).sort();
+  }, [rows]);
 
   const filtered = useMemo(() => {
     let result = rows;
@@ -87,6 +102,10 @@ const Players = () => {
       toast({ title: "Name and Email are required", variant: "destructive" });
       return;
     }
+    if (!activeSeasonId) {
+      toast({ title: "No season selected", description: "Please select a season first", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
       const fd = new FormData();
@@ -95,12 +114,16 @@ const Players = () => {
       if (form.phone) fd.append("phone", form.phone);
       if (photo) fd.append("photo", photo);
       if (form.sport) fd.append("sport", form.sport);
+      fd.append("seasonId", activeSeasonId); // Add seasonId to form data
+      
       if (editing) {
         await adminApi.players.update(editing._id, fd);
         setRows(prev => prev.map(p => p._id === editing._id ? { ...p, ...form, photo: photoPreview || p.photo } : p));
         toast({ title: "Player Updated" });
       } else {
-        const { data } = await adminApi.players.create(fd);
+        const { data } = await api.post("/api/players", fd, {
+          headers: { "Content-Type": "multipart/form-data" }
+        });
         const created = data.player || data.created || {};
         const newItem = { _id: created._id || Math.random().toString(36).slice(2), name: created.name || form.name, email: created.email || form.email, phone: created.phone || form.phone, photo: created.photo || photoPreview, sport: created.sport || form.sport };
         setRows(prev => [newItem, ...prev]);
@@ -207,38 +230,17 @@ const Players = () => {
               >
                 All Sports
               </Button>
-              <Button
-                variant={disciplineFilter === "football" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setDisciplineFilter("football")}
-                className={disciplineFilter === "football" ? "bg-gradient-primary" : ""}
-              >
-                Football
-              </Button>
-              <Button
-                variant={disciplineFilter === "handball" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setDisciplineFilter("handball")}
-                className={disciplineFilter === "handball" ? "bg-gradient-primary" : ""}
-              >
-                Handball
-              </Button>
-              <Button
-                variant={disciplineFilter === "swimming" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setDisciplineFilter("swimming")}
-                className={disciplineFilter === "swimming" ? "bg-gradient-primary" : ""}
-              >
-                Swimming
-              </Button>
-              <Button
-                variant={disciplineFilter === "volleyball" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setDisciplineFilter("volleyball")}
-                className={disciplineFilter === "volleyball" ? "bg-gradient-primary" : ""}
-              >
-                Volleyball
-              </Button>
+              {availableSports.map((sport) => (
+                <Button
+                  key={sport}
+                  variant={disciplineFilter === sport ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setDisciplineFilter(sport)}
+                  className={disciplineFilter === sport ? "bg-gradient-primary" : ""}
+                >
+                  {sport.charAt(0).toUpperCase() + sport.slice(1)}
+                </Button>
+              ))}
             </div>
           </div>
         </CardHeader>
@@ -266,13 +268,17 @@ const Players = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(player)}>
+                      <Button variant="ghost" size="sm" onClick={() => setViewPlayer(player)} title="View Details">
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(player)} title="Edit">
                         <Edit className="w-4 h-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDelete(player._id)}
+                        title="Delete"
                       >
                         <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
@@ -289,6 +295,59 @@ const Players = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* View Player Details Dialog */}
+      <Dialog open={!!viewPlayer} onOpenChange={() => setViewPlayer(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Player Details</DialogTitle>
+          </DialogHeader>
+          {viewPlayer && (
+            <div className="space-y-6">
+              <div className="flex flex-col items-center">
+                <Avatar className="w-24 h-24 mb-4">
+                  <AvatarImage 
+                    src={viewPlayer.photo ? `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${viewPlayer.photo}` : ""} 
+                  />
+                  <AvatarFallback className="bg-gradient-primary text-primary-foreground text-2xl">
+                    {viewPlayer.name?.split(" ").map((n: string) => n[0]).join("") || "P"}
+                  </AvatarFallback>
+                </Avatar>
+                <h3 className="text-xl font-semibold">{viewPlayer.name || "N/A"}</h3>
+                <span className="px-3 py-1 rounded-full text-sm bg-primary/10 text-primary capitalize mt-2">
+                  {viewPlayer.sport || "N/A"}
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                  <User className="w-5 h-5 text-muted-foreground mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-muted-foreground">Full Name</p>
+                    <p className="text-sm">{viewPlayer.name || "N/A"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                  <Mail className="w-5 h-5 text-muted-foreground mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-muted-foreground">Email</p>
+                    <p className="text-sm">{viewPlayer.email || "N/A"}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                  <Phone className="w-5 h-5 text-muted-foreground mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-muted-foreground">Phone</p>
+                    <p className="text-sm">{viewPlayer.phone || "N/A"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

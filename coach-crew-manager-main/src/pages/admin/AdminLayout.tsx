@@ -1,13 +1,20 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "lucide-react";
 import { adminApi } from "@/lib/api";
+import { useSeason } from "@/contexts/SeasonContext";
+import { format } from "date-fns";
 
 const AdminLayout = () => {
   const [teamSettings, setTeamSettings] = useState<any>(null);
+  const { activeSeason } = useSeason();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     const fetchTeamSettings = async () => {
@@ -21,6 +28,30 @@ const AdminLayout = () => {
     fetchTeamSettings();
   }, []);
 
+  // Check if we're on the Seasons page
+  const isOnSeasonsPage = location.pathname === '/admin/seasons' || location.pathname.startsWith('/admin/seasons/');
+  
+  // Show navbar if: on seasons page OR has active season
+  const showNavbar = isOnSeasonsPage || !!activeSeason;
+  
+  // Debug logging
+  console.log('AdminLayout Debug:', {
+    pathname: location.pathname,
+    isOnSeasonsPage,
+    hasActiveSeason: !!activeSeason,
+    showNavbar
+  });
+  
+  // If should not show navbar, render without it
+  if (!showNavbar) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Outlet />
+      </div>
+    );
+  }
+
+  // Show full layout with navbar and sidebar
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
@@ -41,7 +72,36 @@ const AdminLayout = () => {
                 {teamSettings?.teamName || "Sports Team Manager"}
               </h2>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-3">
+              {activeSeason && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/admin/seasons')}
+                  className="flex items-center gap-2"
+                >
+                  <Calendar className="w-4 h-4" />
+                  <div className="flex flex-col items-start">
+                    <span className="text-xs font-semibold">{activeSeason.name}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {format(new Date(activeSeason.startDate), "MMM d")} - {format(new Date(activeSeason.endDate), "MMM d, yyyy")}
+                    </span>
+                  </div>
+                </Button>
+              )}
+              {!activeSeason && isOnSeasonsPage && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                  disabled
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span className="text-xs">No Season Selected</span>
+                </Button>
+              )}
+              <ThemeToggle />
+            </div>
           </header>
           <main className="flex-1 p-6 bg-background">
             <Outlet />

@@ -39,6 +39,11 @@ export const adminApi = {
   getSettings: () => api.get("/api/admin/settings"),
   updateSettings: (data: FormData) => api.put("/api/admin/settings", data, { headers: { "Content-Type": "multipart/form-data" } }),
   changePassword: (data: { currentPassword: string; newPassword: string }) => api.put("/api/admin/change-password", data),
+  // Season Management
+  getSeasons: () => api.get("/api/admin/seasons"),
+  createSeason: (data: { name: string; startDate: string; endDate: string; description?: string }) => api.post("/api/admin/seasons", data),
+  deleteSeason: (seasonId: string) => api.delete(`/api/admin/seasons/${seasonId}`),
+  setActiveSeason: (seasonId: string) => api.put(`/api/admin/seasons/${seasonId}/activate`),
   players: {
     list: () => api.get("/api/players"),
     create: (data: FormData) => api.post("/api/players", data, { headers: { "Content-Type": "multipart/form-data" } }),

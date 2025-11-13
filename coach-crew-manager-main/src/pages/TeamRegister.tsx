@@ -46,9 +46,22 @@ const TeamRegister = () => {
       fd.append("email", formData.email);
       fd.append("password", formData.password);
       if (logo) fd.append("teamLogo", logo);
+      
       await authApi.register(fd);
-      toast({ title: "Registration Successful!", description: "Your team has been registered. Redirecting to login..." });
-      setTimeout(() => navigate("/login"), 1200);
+      
+      toast({ 
+        title: "Registration Successful!", 
+        description: "Please check your email for verification code" 
+      });
+      
+      // Redirect to verification page with email and team info
+      navigate("/verify-email", {
+        state: {
+          email: formData.email,
+          teamName: formData.teamName,
+          adminName: formData.teamName // You can add a separate admin name field if needed
+        }
+      });
     } catch (err: any) {
       toast({ title: "Registration failed", description: err?.response?.data?.message || "Please try again", variant: "destructive" });
     }

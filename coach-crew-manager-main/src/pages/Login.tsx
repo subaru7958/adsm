@@ -4,54 +4,81 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LogIn, Trophy, Eye, EyeOff } from "lucide-react";
+import { LogIn, Trophy, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { authApi, setToken } from "@/lib/api";
 
 const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [adminData, setAdminData] = useState({ email: "", password: "" });
-  const [playerData, setPlayerData] = useState({ email: "", password: "" });
-  const [coachData, setCoachData] = useState({ email: "", password: "" });
-  const [showAdminPassword, setShowAdminPassword] = useState(false);
-  const [showPlayerPassword, setShowPlayerPassword] = useState(false);
-  const [showCoachPassword, setShowCoachPassword] = useState(false);
+  const [credentials, setCredentials] = useState({ email: "", password: "" });
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleAdminLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const { data } = await authApi.adminLogin(adminData.email, adminData.password);
-      setToken(data.token);
-      toast({ title: "Login Successful!", description: "Welcome back, Admin!" });
-      navigate("/admin");
-    } catch (err: any) {
-      toast({ title: "Login failed", description: err?.response?.data?.message || "Invalid credentials", variant: "destructive" });
-    }
-  };
+    setLoading(true);
 
-  const handlePlayerLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+    // Try each role in order: Admin -> Coach -> Player
     try {
-      const { data } = await authApi.playerLogin(playerData.email, playerData.password);
-      setToken(data.token);
-      toast({ title: "Login Successful!", description: "Welcome back, Player!" });
-      navigate("/player");
-    } catch (err: any) {
-      toast({ title: "Login failed", description: err?.response?.data?.message || "Invalid credentials", variant: "destructive" });
-    }
-  };
+      // Try Admin login first
+      try {
+        const { data } = await authApi.adminLogin(credentials.email, credentials.password);
+        setToken(data.token);
+        toast({ title: "Login Successful!", description: "Welcome back, Admin!" });
+        // Redirect to seasons page - user will select/create season first
+        navigate("/admin/seasons");
+        return;
+      } catch (adminErr: any) {
+        // Check if user needs verification
+        if (adminErr?.response?.data?.needsVerification) {
+          toast({
+            title: "Email Not Verified",
+            description: "Please verify your email address first",
+            variant: "destructive"
+          });
+          navigate("/verify-email", {
+            state: {
+              email: adminErr.response.data.email,
+              teamName: "Your Team",
+              adminName: "Admin"
+            }
+          });
+          return;
+        }
+        // Admin login failed, continue to next role
+      }
 
-  const handleCoachLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const { data } = await authApi.coachLogin(coachData.email, coachData.password);
-      setToken(data.token);
-      toast({ title: "Login Successful!", description: "Welcome back, Coach!" });
-      navigate("/coach");
-    } catch (err: any) {
-      toast({ title: "Login failed", description: err?.response?.data?.message || "Invalid credentials", variant: "destructive" });
+      // Try Coach login
+      try {
+        const { data } = await authApi.coachLogin(credentials.email, credentials.password);
+        setToken(data.token);
+        toast({ title: "Login Successful!", description: "Welcome back, Coach!" });
+        navigate("/coach");
+        return;
+      } catch (coachErr) {
+        // Coach login failed, continue to next role
+      }
+
+      // Try Player login
+      try {
+        const { data } = await authApi.playerLogin(credentials.email, credentials.password);
+        setToken(data.token);
+        toast({ title: "Login Successful!", description: "Welcome back, Player!" });
+        navigate("/player");
+        return;
+      } catch (playerErr) {
+        // Player login failed
+      }
+
+      // If all attempts failed
+      toast({ 
+        title: "Login failed", 
+        description: "Invalid email or password", 
+        variant: "destructive" 
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -70,153 +97,66 @@ const Login = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="admin" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="admin">Admin</TabsTrigger>
-              <TabsTrigger value="player">Player</TabsTrigger>
-              <TabsTrigger value="coach">Coach</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="admin">
-              <form onSubmit={handleAdminLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="admin-email">Email</Label>
-                  <Input
-                    id="admin-email"
-                    type="email"
-                    placeholder="admin@example.com"
-                    value={adminData.email}
-                    onChange={(e) => setAdminData({ ...adminData, email: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="admin-password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="admin-password"
-                      type={showAdminPassword ? "text" : "password"}
-                      value={adminData.password}
-                      onChange={(e) => setAdminData({ ...adminData, password: e.target.value })}
-                      required
-                      className="pr-10"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                      onClick={() => setShowAdminPassword(!showAdminPassword)}
-                    >
-                      {showAdminPassword ? (
-                        <EyeOff className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Eye className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <Button type="submit" className="w-full bg-gradient-primary shadow-primary hover:shadow-hover">
-                  <LogIn className="w-4 h-4 mr-2" />
-                  Sign In as Admin
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="Enter your email"
+                value={credentials.email}
+                onChange={(e) => setCredentials({ ...credentials, email: e.target.value })}
+                required
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
+                  value={credentials.password}
+                  onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
+                  required
+                  disabled={loading}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  )}
                 </Button>
-              </form>
-            </TabsContent>
-
-            <TabsContent value="player">
-              <form onSubmit={handlePlayerLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="player-email">Email</Label>
-                  <Input
-                    id="player-email"
-                    type="email"
-                    placeholder="player@example.com"
-                    value={playerData.email}
-                    onChange={(e) => setPlayerData({ ...playerData, email: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="player-password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="player-password"
-                      type={showPlayerPassword ? "text" : "password"}
-                      placeholder="Your name"
-                      value={playerData.password}
-                      onChange={(e) => setPlayerData({ ...playerData, password: e.target.value })}
-                      required
-                      className="pr-10"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                      onClick={() => setShowPlayerPassword(!showPlayerPassword)}
-                    >
-                      {showPlayerPassword ? (
-                        <EyeOff className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Eye className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <Button type="submit" className="w-full bg-gradient-primary shadow-primary hover:shadow-hover">
+              </div>
+            </div>
+            <Button 
+              type="submit" 
+              className="w-full bg-gradient-primary shadow-primary hover:shadow-hover"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Signing In...
+                </>
+              ) : (
+                <>
                   <LogIn className="w-4 h-4 mr-2" />
-                  Sign In as Player
-                </Button>
-              </form>
-            </TabsContent>
-
-            <TabsContent value="coach">
-              <form onSubmit={handleCoachLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="coach-email">Email</Label>
-                  <Input
-                    id="coach-email"
-                    type="email"
-                    placeholder="coach@example.com"
-                    value={coachData.email}
-                    onChange={(e) => setCoachData({ ...coachData, email: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="coach-password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="coach-password"
-                      type={showCoachPassword ? "text" : "password"}
-                      placeholder="Your name"
-                      value={coachData.password}
-                      onChange={(e) => setCoachData({ ...coachData, password: e.target.value })}
-                      required
-                      className="pr-10"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                      onClick={() => setShowCoachPassword(!showCoachPassword)}
-                    >
-                      {showCoachPassword ? (
-                        <EyeOff className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Eye className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <Button type="submit" className="w-full bg-gradient-primary shadow-primary hover:shadow-hover">
-                  <LogIn className="w-4 h-4 mr-2" />
-                  Sign In as Coach
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
+                  Sign In
+                </>
+              )}
+            </Button>
+          </form>
 
           <div className="mt-4 text-center space-y-2">
             <Button variant="link" onClick={() => navigate("/forgot-password")}>

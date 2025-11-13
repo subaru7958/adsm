@@ -1,13 +1,15 @@
 import { useEffect, useState, useMemo } from "react";
-import { adminApi } from "@/lib/api";
+import { adminApi, api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Users, UserCheck, Calendar, TrendingUp, MapPin, Clock } from "lucide-react";
 import { format, startOfWeek, endOfWeek, addWeeks, isWithinInterval } from "date-fns";
+import { useSeason } from "@/contexts/SeasonContext";
 
 const Dashboard = () => {
+  const { activeSeasonId, activeSeason } = useSeason();
   const [counts, setCounts] = useState<{ players: number; coaches: number; groups: number } | null>(null);
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [events, setEvents] = useState<Array<{ _id: string; title: string; date?: string; time?: string; location?: string; banner?: string }>>([]);
@@ -16,35 +18,58 @@ const Dashboard = () => {
   const [weekFilter, setWeekFilter] = useState<"this" | "next" | "all">("all");
 
   useEffect(() => {
+    if (!activeSeasonId) return; // Don't fetch if no season selected
+    
     (async () => {
       setLoading(true);
       try {
-        const start = new Date();
-        const end = new Date();
-        end.setDate(end.getDate() + 30);
-        const [statsRes, eventsRes, settingsRes] = await Promise.all([
-          adminApi.stats(),
-          adminApi.events.list({ start: start.toISOString(), end: end.toISOString() }),
+        const [playersRes, coachesRes, groupsRes, sessionsRes, settingsRes] = await Promise.all([
+          api.get(`/api/players?season=${activeSeasonId}`),
+          api.get(`/api/coaches?season=${activeSeasonId}`),
+          api.get(`/api/groups?season=${activeSeasonId}`),
+          api.get(`/api/sessions?season=${activeSeasonId}`),
           adminApi.getSettings(),
         ]);
+        
         setTeamSettings(settingsRes.data.settings);
-        setCounts(statsRes.data.stats?.counts || { players: 0, coaches: 0, groups: 0 });
-        setUpcoming(statsRes.data.stats?.upcoming || []);
-        const list: any[] = eventsRes.data.events || eventsRes.data.items || [];
-        const normalized = list.map((it: any) => ({
+        
+        // Calculate counts from season-specific data
+        const players = playersRes.data.players || [];
+        const coaches = coachesRes.data.coaches || [];
+        const groups = groupsRes.data.groups || [];
+        const sessions = sessionsRes.data.events || [];
+        
+        setCounts({
+          players: players.length,
+          coaches: coaches.length,
+          groups: groups.length,
+        });
+        
+        // Filter upcoming sessions (future sessions only)
+        const now = new Date();
+        const upcomingSessions = sessions.filter((session: any) => {
+          const sessionDate = session.specialStartTime 
+            ? new Date(session.specialStartTime)
+            : new Date(); // For weekly sessions, use current date as placeholder
+          return sessionDate >= now;
+        });
+        
+        setUpcoming(upcomingSessions);
+        setEvents(upcomingSessions.map((it: any) => ({
           _id: it._id || it.id,
           title: it.title || it.name || "Event",
-          date: it.date || (it.start ? new Date(it.start).toISOString().slice(0,10) : undefined),
-          time: it.time || (it.start ? new Date(it.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined),
+          date: it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0,10) : undefined,
+          time: it.specialStartTime ? new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (it.weeklyStartTime || undefined),
           location: it.location,
           banner: it.banner || it.photo,
-        }));
-        setEvents(normalized);
+        })));
+      } catch (error) {
+        console.error('Failed to fetch dashboard data:', error);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [activeSeasonId]);
 
   const filteredUpcoming = useMemo(() => {
     const now = new Date();

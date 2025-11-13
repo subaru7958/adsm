@@ -2,13 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Users, UserCheck, Check } from "lucide-react";
-import { adminApi } from "@/lib/api";
+import { Plus, Users, UserCheck, Check, Eye, Search } from "lucide-react";
+import { adminApi, api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useSeason } from "@/contexts/SeasonContext";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type GroupItem = {
   _id: string;
@@ -85,13 +88,14 @@ function MultiSelect({
 
 const Groups = () => {
   const { toast } = useToast();
+  const { activeSeasonId } = useSeason();
   const [groups, setGroups] = useState<GroupItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [sportFilter, setSportFilter] = useState<string>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formName, setFormName] = useState("");
-  const [allPlayers, setAllPlayers] = useState<Array<{ _id: string; name?: string; email?: string; sport?: string }>>([]);
-  const [allCoaches, setAllCoaches] = useState<Array<{ _id: string; name?: string; email?: string; specialty?: string }>>([]);
+  const [allPlayers, setAllPlayers] = useState<Array<{ _id: string; name?: string; email?: string; sport?: string; photo?: string }>>([]);
+  const [allCoaches, setAllCoaches] = useState<Array<{ _id: string; name?: string; email?: string; specialty?: string; photo?: string }>>([]);
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
   const [selectedCoaches, setSelectedCoaches] = useState<string[]>([]);
   const [loadingEditor, setLoadingEditor] = useState(false);
@@ -103,39 +107,111 @@ const Groups = () => {
   const [createSelectedCoaches, setCreateSelectedCoaches] = useState<string[]>([]);
   const [createSaving, setCreateSaving] = useState(false);
   const [editSport, setEditSport] = useState<string>("football");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewGroup, setViewGroup] = useState<GroupItem | null>(null);
+  const [showPlayerSelector, setShowPlayerSelector] = useState(false);
+  const [showCoachSelector, setShowCoachSelector] = useState(false);
+  const [playerSearchQuery, setPlayerSearchQuery] = useState("");
+  const [coachSearchQuery, setCoachSearchQuery] = useState("");
   
 
   useEffect(() => {
+    if (!activeSeasonId) return; // Don't fetch if no season selected
+    
     (async () => {
       setLoading(true);
       try {
-        const { data } = await adminApi.groups.list();
+        const { data } = await api.get(`/api/groups?season=${activeSeasonId}`);
         setGroups(data.groups || []);
+      } catch (err: any) {
+        toast({ title: "Failed to load groups", description: err?.response?.data?.message || "Please try again", variant: "destructive" });
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [activeSeasonId, toast]);
 
   const filteredGroups = useMemo(() => {
-    if (sportFilter === "all") return groups;
-    return groups.filter(g => (g.sport || "football") === sportFilter);
-  }, [groups, sportFilter]);
+    let result = groups;
+    
+    // Filter by sport
+    if (sportFilter !== "all") {
+      result = result.filter(g => (g.sport || "football") === sportFilter);
+    }
+    
+    // Filter by search query
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter(g => {
+        const groupName = (g.name || "").toLowerCase();
+        const playersArr = (g.players || []) as any[];
+        const coachesArr = (g.coaches || []) as any[];
+        
+        // Search in group name
+        if (groupName.includes(q)) return true;
+        
+        // Search in player names
+        if (playersArr.some(p => {
+          const name = typeof p === 'object' ? (p.name || "") : "";
+          return name.toLowerCase().includes(q);
+        })) return true;
+        
+        // Search in coach names
+        if (coachesArr.some(c => {
+          const name = typeof c === 'object' ? (c.name || "") : "";
+          return name.toLowerCase().includes(q);
+        })) return true;
+        
+        return false;
+      });
+    }
+    
+    return result;
+  }, [groups, sportFilter, searchQuery]);
+
+  // Get unique sports from current groups
+  const availableSports = useMemo(() => {
+    const sports = new Set(groups.map(g => g.sport || "football"));
+    return Array.from(sports).sort();
+  }, [groups]);
 
   const isEditing = useMemo(() => Boolean(editingId), [editingId]);
   const createPlayerOptions: MultiSelectOption[] = useMemo(() => allPlayers.filter(p => (p.sport || 'football') === createSport).map(p => ({ value: p._id, label: p.name || p.email || 'Player' })), [allPlayers, createSport]);
   const createCoachOptions: MultiSelectOption[] = useMemo(() => allCoaches.filter(c => (c.specialty || 'football') === createSport).map(c => ({ value: c._id, label: c.name || c.email || 'Coach' })), [allCoaches, createSport]);
+  
+  // Filtered players and coaches for selector dialogs
+  const filteredPlayersForSelector = useMemo(() => {
+    const q = playerSearchQuery.trim().toLowerCase();
+    const sportFiltered = allPlayers.filter(p => (p.sport || 'football') === createSport);
+    if (!q) return sportFiltered;
+    return sportFiltered.filter(p => 
+      (p.name || '').toLowerCase().includes(q) || 
+      (p.email || '').toLowerCase().includes(q)
+    );
+  }, [allPlayers, createSport, playerSearchQuery]);
+  
+  const filteredCoachesForSelector = useMemo(() => {
+    const q = coachSearchQuery.trim().toLowerCase();
+    const sportFiltered = allCoaches.filter(c => (c.specialty || 'football') === createSport);
+    if (!q) return sportFiltered;
+    return sportFiltered.filter(c => 
+      (c.name || '').toLowerCase().includes(q) || 
+      (c.email || '').toLowerCase().includes(q)
+    );
+  }, [allCoaches, createSport, coachSearchQuery]);
   const editPlayerOptions: MultiSelectOption[] = useMemo(() => allPlayers.filter(p => (p.sport || 'football') === editSport).map(p => ({ value: p._id, label: p.name || p.email || 'Player' })), [allPlayers, editSport]);
   const editCoachOptions: MultiSelectOption[] = useMemo(() => allCoaches.filter(c => (c.specialty || 'football') === editSport).map(c => ({ value: c._id, label: c.name || c.email || 'Coach' })), [allCoaches, editSport]);
 
   const openEditor = async (id: string) => {
+    if (!activeSeasonId) return;
+    
     setEditingId(id);
     setLoadingEditor(true);
     try {
       const [detailRes, playersRes, coachesRes] = await Promise.all([
         adminApi.groups.detail(id),
-        adminApi.players.list(),
-        adminApi.coaches.list(),
+        api.get(`/api/players?season=${activeSeasonId}`),
+        api.get(`/api/coaches?season=${activeSeasonId}`),
       ]);
       const g = detailRes.data.group || detailRes.data;
       setFormName(g.name || "");
@@ -177,11 +253,13 @@ const Groups = () => {
     setCreateSport("football");
     setCreateSelectedPlayers([]);
     setCreateSelectedCoaches([]);
+    if (!activeSeasonId) return;
+    
     if (!allPlayers.length || !allCoaches.length) {
       try {
         const [playersRes, coachesRes] = await Promise.all([
-          adminApi.players.list(),
-          adminApi.coaches.list(),
+          api.get(`/api/players?season=${activeSeasonId}`),
+          api.get(`/api/coaches?season=${activeSeasonId}`),
         ]);
         setAllPlayers(playersRes.data.players || []);
         setAllCoaches(coachesRes.data.coaches || []);
@@ -193,9 +271,17 @@ const Groups = () => {
 
   const saveCreate = async () => {
     if (!createName.trim()) { toast({ title: 'Name required', variant: 'destructive' }); return; }
+    if (!activeSeasonId) {
+      toast({ title: "No season selected", description: "Please select a season first", variant: "destructive" });
+      return;
+    }
     setCreateSaving(true);
     try {
-      const { data } = await adminApi.groups.create({ name: createName.trim(), sport: createSport });
+      const { data } = await api.post("/api/groups", {
+        name: createName.trim(),
+        sport: createSport,
+        seasonId: activeSeasonId
+      });
       const created = data.group || data.created || { name: createName.trim(), _id: data._id };
       const id = created._id as string;
       if (id && (createSelectedPlayers.length || createSelectedCoaches.length)) {
@@ -226,9 +312,21 @@ const Groups = () => {
         </Button>
       </div>
 
-      {/* Sport Filter */}
+      {/* Search and Sport Filter */}
       <Card className="shadow-card">
-        <CardContent className="pt-6">
+        <CardContent className="pt-6 space-y-4">
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search groups, players, or coaches..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          
+          {/* Sport Filter */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-muted-foreground mr-2">Filter by Sport:</span>
             <Button
@@ -239,38 +337,17 @@ const Groups = () => {
             >
               All Sports
             </Button>
-            <Button
-              variant={sportFilter === "football" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSportFilter("football")}
-              className={sportFilter === "football" ? "bg-gradient-primary" : ""}
-            >
-              Football
-            </Button>
-            <Button
-              variant={sportFilter === "handball" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSportFilter("handball")}
-              className={sportFilter === "handball" ? "bg-gradient-primary" : ""}
-            >
-              Handball
-            </Button>
-            <Button
-              variant={sportFilter === "swimming" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSportFilter("swimming")}
-              className={sportFilter === "swimming" ? "bg-gradient-primary" : ""}
-            >
-              Swimming
-            </Button>
-            <Button
-              variant={sportFilter === "volleyball" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSportFilter("volleyball")}
-              className={sportFilter === "volleyball" ? "bg-gradient-primary" : ""}
-            >
-              Volleyball
-            </Button>
+            {availableSports.map((sport) => (
+              <Button
+                key={sport}
+                variant={sportFilter === sport ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSportFilter(sport)}
+                className={sportFilter === sport ? "bg-gradient-primary capitalize" : "capitalize"}
+              >
+                {sport}
+              </Button>
+            ))}
           </div>
         </CardContent>
       </Card>
@@ -297,10 +374,30 @@ const Groups = () => {
               </div>
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                  <MultiSelect title="Players" options={createPlayerOptions} selected={createSelectedPlayers} onChange={setCreateSelectedPlayers} />
+                  <Label>Players</Label>
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start" 
+                    onClick={() => setShowPlayerSelector(true)}
+                  >
+                    <Users className="w-4 h-4 mr-2" />
+                    {createSelectedPlayers.length > 0 
+                      ? `${createSelectedPlayers.length} player${createSelectedPlayers.length > 1 ? 's' : ''} selected` 
+                      : 'Select players'}
+                  </Button>
                 </div>
                 <div>
-                  <MultiSelect title="Coaches" options={createCoachOptions} selected={createSelectedCoaches} onChange={setCreateSelectedCoaches} />
+                  <Label>Coaches</Label>
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start" 
+                    onClick={() => setShowCoachSelector(true)}
+                  >
+                    <UserCheck className="w-4 h-4 mr-2" />
+                    {createSelectedCoaches.length > 0 
+                      ? `${createSelectedCoaches.length} coach${createSelectedCoaches.length > 1 ? 'es' : ''} selected` 
+                      : 'Select coaches'}
+                  </Button>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -406,6 +503,10 @@ const Groups = () => {
               </div>
 
               <div className="pt-4 flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setViewGroup(group)} title="View Details">
+                  <Eye className="w-4 h-4 mr-2" />
+                  View
+                </Button>
                 <Button variant="outline" size="sm" className="flex-1" onClick={() => openEditor(group._id)}>
                   Edit Group
                 </Button>
@@ -426,6 +527,278 @@ const Groups = () => {
           </Card>
         );})}
       </div>
+
+      {/* View Group Details Dialog */}
+      <Dialog open={!!viewGroup} onOpenChange={() => setViewGroup(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Group Details</DialogTitle>
+          </DialogHeader>
+          {viewGroup && (() => {
+            const playersArr = (viewGroup.players || []) as any[];
+            const coachesArr = (viewGroup.coaches || []) as any[];
+            
+            return (
+              <div className="space-y-6">
+                {/* Group Name and Sport */}
+                <div className="text-center pb-4 border-b">
+                  <h3 className="text-2xl font-bold mb-2">{viewGroup.name}</h3>
+                  <Badge className="capitalize">{viewGroup.sport || "football"}</Badge>
+                </div>
+
+                {/* Players Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-primary" />
+                    <h4 className="text-lg font-semibold">Players ({playersArr.length})</h4>
+                  </div>
+                  {playersArr.length > 0 ? (
+                    <div className="grid gap-3">
+                      {playersArr.map((player: any, idx: number) => {
+                        const playerObj = typeof player === 'object' ? player : { name: player };
+                        return (
+                          <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                            <Avatar className="w-10 h-10">
+                              <AvatarImage src={playerObj.photo ? `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${playerObj.photo}` : ""} />
+                              <AvatarFallback className="bg-primary/10 text-primary">
+                                {(playerObj.name || "P").split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <p className="font-medium">{playerObj.name || "Unknown Player"}</p>
+                              {playerObj.email && (
+                                <p className="text-sm text-muted-foreground">{playerObj.email}</p>
+                              )}
+                            </div>
+                            {playerObj.sport && (
+                              <Badge variant="outline" className="capitalize text-xs">
+                                {playerObj.sport}
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-4">No players in this group</p>
+                  )}
+                </div>
+
+                {/* Coaches Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="w-5 h-5 text-primary" />
+                    <h4 className="text-lg font-semibold">Coaches ({coachesArr.length})</h4>
+                  </div>
+                  {coachesArr.length > 0 ? (
+                    <div className="grid gap-3">
+                      {coachesArr.map((coach: any, idx: number) => {
+                        const coachObj = typeof coach === 'object' ? coach : { name: coach };
+                        return (
+                          <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                            <Avatar className="w-10 h-10">
+                              <AvatarImage src={coachObj.photo ? `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${coachObj.photo}` : ""} />
+                              <AvatarFallback className="bg-secondary/10 text-secondary">
+                                {(coachObj.name || "C").split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <p className="font-medium">{coachObj.name || "Unknown Coach"}</p>
+                              {coachObj.email && (
+                                <p className="text-sm text-muted-foreground">{coachObj.email}</p>
+                              )}
+                            </div>
+                            {coachObj.specialty && (
+                              <Badge variant="outline" className="capitalize text-xs">
+                                {coachObj.specialty}
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-4">No coaches assigned to this group</p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Player Selector Dialog */}
+      <Dialog open={showPlayerSelector} onOpenChange={setShowPlayerSelector}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Select Players</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search players by name..."
+                value={playerSearchQuery}
+                onChange={(e) => setPlayerSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            {/* Selected Count */}
+            <div className="text-sm text-muted-foreground">
+              {createSelectedPlayers.length} player{createSelectedPlayers.length !== 1 ? 's' : ''} selected
+            </div>
+
+            {/* Players List */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+              {filteredPlayersForSelector.length > 0 ? (
+                filteredPlayersForSelector.map((player) => {
+                  const isSelected = createSelectedPlayers.includes(player._id);
+                  return (
+                    <div
+                      key={player._id}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        isSelected 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                      }`}
+                      onClick={() => {
+                        if (isSelected) {
+                          setCreateSelectedPlayers(prev => prev.filter(id => id !== player._id));
+                        } else {
+                          setCreateSelectedPlayers(prev => [...prev, player._id]);
+                        }
+                      }}
+                    >
+                      <Avatar className="w-10 h-10">
+                        <AvatarImage src={player.photo ? `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${player.photo}` : ""} />
+                        <AvatarFallback className="bg-primary/10 text-primary">
+                          {(player.name || "P").split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <p className="font-medium">{player.name || "Unknown Player"}</p>
+                        <p className="text-sm text-muted-foreground">{player.email}</p>
+                      </div>
+                      {isSelected && (
+                        <Check className="w-5 h-5 text-primary" />
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-center text-muted-foreground py-8">
+                  {playerSearchQuery ? 'No players found matching your search' : 'No players available for this sport'}
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-4 border-t">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setPlayerSearchQuery("");
+                  setShowPlayerSelector(false);
+                }}
+                className="flex-1"
+              >
+                Done
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Coach Selector Dialog */}
+      <Dialog open={showCoachSelector} onOpenChange={setShowCoachSelector}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Select Coaches</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search coaches by name..."
+                value={coachSearchQuery}
+                onChange={(e) => setCoachSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            {/* Selected Count */}
+            <div className="text-sm text-muted-foreground">
+              {createSelectedCoaches.length} coach{createSelectedCoaches.length !== 1 ? 'es' : ''} selected
+            </div>
+
+            {/* Coaches List */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+              {filteredCoachesForSelector.length > 0 ? (
+                filteredCoachesForSelector.map((coach) => {
+                  const isSelected = createSelectedCoaches.includes(coach._id);
+                  return (
+                    <div
+                      key={coach._id}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        isSelected 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                      }`}
+                      onClick={() => {
+                        if (isSelected) {
+                          setCreateSelectedCoaches(prev => prev.filter(id => id !== coach._id));
+                        } else {
+                          setCreateSelectedCoaches(prev => [...prev, coach._id]);
+                        }
+                      }}
+                    >
+                      <Avatar className="w-10 h-10">
+                        <AvatarImage src={coach.photo ? `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${coach.photo}` : ""} />
+                        <AvatarFallback className="bg-secondary/10 text-secondary">
+                          {(coach.name || "C").split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <p className="font-medium">{coach.name || "Unknown Coach"}</p>
+                        <p className="text-sm text-muted-foreground">{coach.email}</p>
+                        {coach.specialty && (
+                          <Badge variant="outline" className="capitalize text-xs mt-1">
+                            {coach.specialty}
+                          </Badge>
+                        )}
+                      </div>
+                      {isSelected && (
+                        <Check className="w-5 h-5 text-primary" />
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-center text-muted-foreground py-8">
+                  {coachSearchQuery ? 'No coaches found matching your search' : 'No coaches available for this sport'}
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-4 border-t">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setCoachSearchQuery("");
+                  setShowCoachSelector(false);
+                }}
+                className="flex-1"
+              >
+                Done
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

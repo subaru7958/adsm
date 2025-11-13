@@ -4,12 +4,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CheckCircle2, XCircle, FileText, Loader2, User } from "lucide-react";
-import { adminApi } from "@/lib/api";
+import { adminApi, api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useSeason } from "@/contexts/SeasonContext";
 import { format } from "date-fns";
 
 const Review = () => {
   const { toast } = useToast();
+  const { activeSeasonId } = useSeason();
   const [loading, setLoading] = useState(true);
   const [completedSessions, setCompletedSessions] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
@@ -18,8 +20,10 @@ const Review = () => {
   const [sportFilter, setSportFilter] = useState<string>("all");
 
   useEffect(() => {
-    fetchCompletedSessions();
-  }, [daysFilter]);
+    if (activeSeasonId) {
+      fetchCompletedSessions();
+    }
+  }, [daysFilter, activeSeasonId]);
 
   // Get unique sports from completed sessions
   const availableSports = Array.from(
@@ -36,10 +40,17 @@ const Review = () => {
     : completedSessions.filter(s => s.group?.sport === sportFilter);
 
   const fetchCompletedSessions = async () => {
+    if (!activeSeasonId) return;
+    
     try {
       setLoading(true);
-      const { data } = await adminApi.completedSessions(daysFilter);
-      setCompletedSessions(data.completedSessions || []);
+      const { data } = await api.get(`/api/sessions?season=${activeSeasonId}`);
+      const sessions = data.events || [];
+      
+      // Filter only completed sessions
+      const completed = sessions.filter((session: any) => session.isCompleted === true);
+      
+      setCompletedSessions(completed);
     } catch (err: any) {
       toast({
         title: "Error",

@@ -14,9 +14,11 @@ import { useEffect, useMemo, useState } from "react";
 import { adminApi, coachApi, coachApiPassword } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { format, addDays, startOfWeek, endOfWeek, addWeeks, isWithinInterval, subDays } from "date-fns";
+import { useSeason } from "@/contexts/SeasonContext";
 
 const CoachDashboard = () => {
   const { toast } = useToast();
+  const { activeSeason } = useSeason();
   const [loading, setLoading] = useState(true);
   const [coaches, setCoaches] = useState<Array<{ _id: string; name?: string; email?: string; phone?: string; specialty?: string; photo?: string }>>([]);
   const [groups, setGroups] = useState<Array<{ _id: string; name: string; coaches?: string[] | any[]; players?: string[] | any[] }>>([]);
@@ -395,6 +397,14 @@ const CoachDashboard = () => {
                 Coach Dashboard
               </h1>
               <p className="text-muted-foreground mt-2">{profile ? `Welcome back, ${profile.name}!` : 'Choose a coach to view details.'}</p>
+              {activeSeason && (
+                <div className="flex items-center gap-2 mt-2">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-muted-foreground">
+                    {activeSeason.name} • {format(new Date(activeSeason.startDate), "MMM d")} - {format(new Date(activeSeason.endDate), "MMM d, yyyy")}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">

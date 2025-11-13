@@ -12,10 +12,12 @@ import { useNavigate } from "react-router-dom";
 import { clearToken, playerApi, adminApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { format, addDays, startOfWeek, endOfWeek, addWeeks, isWithinInterval } from "date-fns";
+import { useSeason } from "@/contexts/SeasonContext";
 
 const PlayerDashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { activeSeason } = useSeason();
   const [loading, setLoading] = useState(true);
   const [playerInfo, setPlayerInfo] = useState<any>(null);
   const [groups, setGroups] = useState<any[]>([]);
@@ -214,6 +216,14 @@ const PlayerDashboard = () => {
                 Player Dashboard
               </h1>
               <p className="text-muted-foreground mt-2">Welcome back, {playerInfo.name}!</p>
+              {activeSeason && (
+                <div className="flex items-center gap-2 mt-2">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-muted-foreground">
+                    {activeSeason.name} • {format(new Date(activeSeason.startDate), "MMM d")} - {format(new Date(activeSeason.endDate), "MMM d, yyyy")}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -398,6 +408,11 @@ const PlayerDashboard = () => {
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <h4 className="font-semibold">{session.title || "Training Session"}</h4>
+                          {isPast && (
+                            <Badge className="bg-green-600 text-xs">
+                              COMPLETED
+                            </Badge>
+                          )}
                           {isGame && (
                             <Badge className="bg-orange-600 text-xs">
                               {(session as any).eventType?.toUpperCase()}

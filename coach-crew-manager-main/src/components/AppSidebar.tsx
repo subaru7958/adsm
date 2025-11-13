@@ -13,6 +13,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { useSeason } from "@/contexts/SeasonContext";
 
 const adminMenuItems = [
   { title: "Dashboard", url: "/admin", icon: Home },
@@ -28,8 +29,12 @@ const adminMenuItems = [
 export function AppSidebar() {
   const { open } = useSidebar();
   const navigate = useNavigate();
+  const { clearActiveSeason } = useSeason();
 
   const handleLogout = () => {
+    // Clear season and token on logout
+    clearActiveSeason();
+    localStorage.removeItem('token');
     navigate("/login");
   };
 

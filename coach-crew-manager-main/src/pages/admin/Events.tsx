@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Calendar, MapPin, Plus, Edit, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { adminApi } from "@/lib/api";
+import { adminApi, api } from "@/lib/api";
+import { useSeason } from "@/contexts/SeasonContext";
 // Chart imports removed as we switch to a card grid UI for upcoming events
 
 type UIEvent = {
@@ -21,6 +22,7 @@ type UIEvent = {
 
 const Events = () => {
   const { toast } = useToast();
+  const { activeSeasonId } = useSeason();
   const [rows, setRows] = useState<UIEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -35,18 +37,17 @@ const Events = () => {
   const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
+    if (!activeSeasonId) return; // Don't fetch if no season selected
+    
     (async () => {
       setLoading(true);
       try {
-        const start = new Date();
-        const end = new Date();
-        end.setDate(end.getDate() + 30);
-        const { data } = await adminApi.events.list({ start: start.toISOString(), end: end.toISOString() });
+        const { data } = await api.get(`/api/sessions?season=${activeSeasonId}`);
         const list: any[] = data.events || data.items || [];
         const normalized: UIEvent[] = list.map((it: any) => {
           const id = it._id || it.id;
-          const d = it.date || (it.start ? new Date(it.start).toISOString().slice(0, 10) : undefined);
-          const t = it.time || (it.start ? new Date(it.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined);
+          const d = it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0, 10) : undefined;
+          const t = it.specialStartTime ? new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (it.weeklyStartTime || undefined);
           return {
             _id: id,
             title: it.title || it.name || "Event",
@@ -64,7 +65,7 @@ const Events = () => {
         setLoading(false);
       }
     })();
-  }, [toast]);
+  }, [activeSeasonId, toast]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();

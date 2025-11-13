@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, MapPin, Plus, Edit, Trash2, Clock, User } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { adminApi } from "@/lib/api";
+import { adminApi, api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useSeason } from "@/contexts/SeasonContext";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -91,6 +92,7 @@ function SingleSelect({
 
 const Training = () => {
   const { toast } = useToast();
+  const { activeSeasonId } = useSeason();
   const [rows, setRows] = useState<UISession[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -103,6 +105,7 @@ const Training = () => {
     date: "",
     time: "",
     location: "",
+    sport: "all" as string,
     group: "",
     weekly: false,
     days: [] as string[],
@@ -111,20 +114,35 @@ const Training = () => {
     locationType: "home" as "home" | "away" | "neutral",
   });
   const [groups, setGroups] = useState<Array<{ _id: string; name: string; sport?: string }>>([]);
-  const groupOptions = useMemo<SingleSelectOption[]>(() => groups.map(g => ({ value: g._id, label: g.name })), [groups]);
+  
+  // Get available sports from groups
+  const availableSportsInGroups = useMemo(() => {
+    const sports = new Set(groups.map(g => g.sport).filter(Boolean));
+    return Array.from(sports).sort();
+  }, [groups]);
+  
+  // Filter groups by selected sport
+  const filteredGroups = useMemo(() => {
+    if (form.sport === "all") return groups;
+    return groups.filter(g => g.sport === form.sport);
+  }, [groups, form.sport]);
+  
+  const groupOptions = useMemo<SingleSelectOption[]>(() => filteredGroups.map(g => ({ value: g._id, label: g.name })), [filteredGroups]);
   const [coaches, setCoaches] = useState<Array<{ _id: string; name: string }>>([]);
   const coachOptions = useMemo<SingleSelectOption[]>(() => coaches.map(c => ({ value: c._id, label: c.name })), [coaches]);
   const [assigning, setAssigning] = useState<string | null>(null);
   const [assignCoachId, setAssignCoachId] = useState<string>("");
 
   useEffect(() => {
+    if (!activeSeasonId) return; // Don't fetch if no season selected
+    
     (async () => {
       setLoading(true);
       try {
         const [sessRes, groupsRes, coachesRes] = await Promise.all([
-          adminApi.sessions.list(undefined as any),
-          adminApi.groups.list(),
-          adminApi.coaches.list(),
+          api.get(`/api/sessions?season=${activeSeasonId}`),
+          api.get(`/api/groups?season=${activeSeasonId}`),
+          api.get(`/api/coaches?season=${activeSeasonId}`),
         ]);
         const data = sessRes.data;
         const list = (data.sessions || data.events || []) as any[];
@@ -173,7 +191,7 @@ const Training = () => {
         setLoading(false);
       }
     })();
-  }, [toast]);
+  }, [activeSeasonId, toast]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [sportFilter, setSportFilter] = useState<string>("all");
@@ -253,6 +271,7 @@ const Training = () => {
       date: "", 
       time: "", 
       location: "", 
+      sport: "all",
       group: "", 
       weekly: false, 
       days: [],
@@ -264,6 +283,7 @@ const Training = () => {
 
   const openEdit = (s: UISession) => {
     setEditing(s);
+    const matchedGroup = groups.find(g => g.name === s.group);
     setForm({
       name: s.name || "",
       type: s.type || "special",
@@ -271,10 +291,8 @@ const Training = () => {
       date: s.date || (s.start ? s.start.slice(0,10) : ""),
       time: s.time || "",
       location: s.location || "",
-      group: (() => {
-        const match = groups.find(g => g.name === s.group);
-        return match?._id || "";
-      })(),
+      sport: s.sport || matchedGroup?.sport || "all",
+      group: matchedGroup?._id || "",
       weekly: (s.type || '').toLowerCase() === 'weekly',
       days: (s.days || []).map(d => codeToLabel[d] ? d : (labelToCode[d as keyof typeof labelToCode] || d)),
       opponent: s.opponent || "",
@@ -365,6 +383,7 @@ const Training = () => {
               dayOfWeek: idx,
               weeklyStartTime: form.time,
               weeklyEndTime: addHour(form.time),
+              seasonId: activeSeasonId,
             };
             
             // Add game fields if not training
@@ -372,7 +391,7 @@ const Training = () => {
               payload.opponent = form.opponent;
               payload.locationType = form.locationType;
             }
-            const { data } = await adminApi.sessions.create(payload);
+            const { data } = await api.post("/api/sessions", payload);
             const created = data.session || payload as any;
             // compute the date within current week for this day index
             const ws = new Date();
@@ -405,6 +424,7 @@ const Training = () => {
             location: form.location || undefined,
             specialStartTime: start.toISOString(),
             specialEndTime: end.toISOString(),
+            seasonId: activeSeasonId,
           };
           
           // Add game fields if not training
@@ -412,7 +432,7 @@ const Training = () => {
             payload.opponent = form.opponent;
             payload.locationType = form.locationType;
           }
-          const { data } = await adminApi.sessions.create(payload);
+          const { data } = await api.post("/api/sessions", payload);
           const created = data.session || payload as any;
           const newItem: UISession = {
             _id: created._id || Math.random().toString(36).slice(2),
@@ -498,8 +518,26 @@ const Training = () => {
                 <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
               </div>
               <div>
+                <Label>Sport/Discipline</Label>
+                <select 
+                  className="w-full border rounded px-3 py-2 text-sm capitalize"
+                  value={form.sport} 
+                  onChange={(e) => setForm({ ...form, sport: e.target.value, group: "" })}
+                >
+                  <option value="all">All Sports</option>
+                  {availableSportsInGroups.map((sport) => (
+                    <option key={sport} value={sport} className="capitalize">
+                      {sport}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <Label>Group</Label>
                 <SingleSelect value={form.group} onChange={(v) => setForm({ ...form, group: v })} options={groupOptions} placeholder="Select group" title="Group" />
+                {form.sport !== "all" && filteredGroups.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">No groups available for {form.sport}</p>
+                )}
               </div>
               
               {/* Game-specific fields */}
