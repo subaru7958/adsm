@@ -67,14 +67,17 @@ export const coachLogin = async (req, res, next) => {
 
 export const register = async (req, res, next) => {
   try {
+    console.log('📝 Registration attempt:', { body: req.body, hasFile: !!req.file });
     const { teamName, email, password } = req.body;
 
     if (!teamName || !email || !password) {
+      console.log('❌ Missing fields:', { teamName: !!teamName, email: !!email, password: !!password });
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
     const existing = await User.findOne({ email });
     if (existing) {
+      console.log('❌ Email already exists:', email);
       return res.status(400).json({ success: false, message: "Email already registered" });
     }
 
