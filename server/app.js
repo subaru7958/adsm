@@ -18,7 +18,21 @@ import verificationRoutes from "./routes/verification.js";
 export const app = express(); 
 config({path:"./config.env"});
 app.use(cors({
-    origin:[process.env.FRONTEND_URL],
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or Postman)
+        if (!origin) return callback(null, true);
+        
+        // Allow all Vercel preview and production URLs
+        const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : [];
+        const isVercelDomain = origin.includes('.vercel.app');
+        const isLocalhost = origin.includes('localhost');
+        
+        if (allowedOrigins.includes(origin) || isVercelDomain || isLocalhost) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods:["GET","POST","PUT","PATCH","DELETE"],
     credentials:true,
 }));
