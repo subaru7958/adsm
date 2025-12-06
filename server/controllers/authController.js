@@ -104,19 +104,25 @@ export const register = async (req, res, next) => {
       expiresAt
     });
 
-    // Send verification email
+    // Send verification email (non-blocking)
+    let emailSent = false;
     try {
       await sendVerificationEmail(email, code, teamName, teamName);
       console.log(`✅ Verification code sent to ${email}: ${code}`);
+      emailSent = true;
     } catch (emailError) {
       console.error('Failed to send verification email:', emailError);
+      console.log(`⚠️ Verification code for ${email}: ${code} (email failed to send)`);
       // Don't fail registration if email fails
     }
 
     res.status(201).json({
       success: true,
-      message: "Registration successful. Please check your email for verification code.",
+      message: emailSent 
+        ? "Registration successful. Please check your email for verification code."
+        : `Registration successful. Verification code: ${code} (Email service unavailable)`,
       user: { id: user._id, teamName: user.teamName, email: user.email, teamLogo: user.teamLogo },
+      verificationCode: emailSent ? undefined : code, // Include code in response if email failed
     });
   } catch (err) {
     next(err);
