@@ -78,7 +78,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Only load theme colors if user is authenticated
     const loadTheme = async () => {
       // Check if user has a token (is authenticated)
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('auth_token');
       if (!token) {
         // No token means public page - don't apply custom theme
         return;
@@ -132,7 +132,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!isLoaded) return;
 
     const checkAndReapplyTheme = () => {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('auth_token');
       if (!token) return; // Not authenticated, don't apply theme
 
       const root = document.documentElement;

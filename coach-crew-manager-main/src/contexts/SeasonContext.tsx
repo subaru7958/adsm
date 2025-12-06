@@ -33,7 +33,7 @@ export const SeasonProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           try {
             const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/seasons`, {
               headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
               }
             });
             if (response.ok) {
