@@ -2,11 +2,13 @@ import Group from "../models/group.js";
 
 export const createGroup = async (req, res, next) => {
   try {
-    const { name, sport } = req.body;
+    const { name, sport, seasonId } = req.body;
     if (!name) return res.status(400).json({ success: false, message: "Group name is required" });
     if (!sport) return res.status(400).json({ success: false, message: "Sport is required" });
+    if (!seasonId) return res.status(400).json({ success: false, message: "Season ID is required" });
+    
     const admin = req.userId;
-    const group = await Group.create({ name, sport, admin, players: [], coaches: [] });
+    const group = await Group.create({ name, sport, admin, seasonId, players: [], coaches: [] });
     res.status(201).json({ success: true, group });
   } catch (err) {
     next(err);
@@ -28,7 +30,13 @@ export const deleteGroup = async (req, res, next) => {
 export const getGroups = async (req, res, next) => {
   try {
     const admin = req.userId;
-    const groups = await Group.find({ admin })
+    const { season } = req.query;
+    
+    if (!season) {
+      return res.status(400).json({ success: false, message: "Season ID is required" });
+    }
+    
+    const groups = await Group.find({ admin, seasonId: season })
       .populate({ path: 'players', select: 'name' })
       .populate({ path: 'coaches', select: 'name' })
       .sort({ createdAt: -1 });

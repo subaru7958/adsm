@@ -8,6 +8,7 @@ import Coach from "../models/coach.js";
 import Group from "../models/group.js";
 import TrainingSession from "../models/trainingSession.js";
 import User from "../models/user.js";
+import { getSeasons, createSeason, deleteSeason, setActiveSeason } from "../controllers/seasonController.js";
 
 const router = express.Router();
 
@@ -219,6 +220,12 @@ router.put("/change-password", protect, async (req, res, next) => {
     next(err);
   }
 });
+
+// Season Management Routes
+router.get("/seasons", protect, getSeasons);
+router.post("/seasons", protect, createSeason);
+router.delete("/seasons/:seasonId", protect, deleteSeason);
+router.put("/seasons/:seasonId/activate", protect, setActiveSeason);
 
 export default router;
 

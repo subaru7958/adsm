@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 import Coach from "../models/coach.js";
 import Player from "../models/player.js";
+import VerificationCode from "../models/verificationCode.js";
+import { sendVerificationEmail } from "../services/emailService.js";
 
 const signToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -78,14 +80,42 @@ export const register = async (req, res, next) => {
 
     const teamLogo = req.file ? `/uploads/${req.file.filename}` : "";
 
-    const user = await User.create({ teamName, email, password, teamLogo });
+    // Create user with isVerified: false
+    const user = await User.create({ 
+      teamName, 
+      name: teamName, // Use teamName as admin name for now
+      email, 
+      password, 
+      teamLogo,
+      isVerified: false 
+    });
 
-    const token = signToken(user._id);
+    // Generate verification code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // Delete any existing codes for this email
+    await VerificationCode.deleteMany({ email: email.toLowerCase() });
+
+    // Save verification code
+    await VerificationCode.create({
+      email: email.toLowerCase(),
+      code,
+      expiresAt
+    });
+
+    // Send verification email
+    try {
+      await sendVerificationEmail(email, code, teamName, teamName);
+      console.log(`✅ Verification code sent to ${email}: ${code}`);
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+      // Don't fail registration if email fails
+    }
 
     res.status(201).json({
       success: true,
-      message: "Registration successful",
-      token,
+      message: "Registration successful. Please check your email for verification code.",
       user: { id: user._id, teamName: user.teamName, email: user.email, teamLogo: user.teamLogo },
     });
   } catch (err) {
@@ -109,6 +139,16 @@ export const login = async (req, res, next) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    // Check if email is verified
+    if (!user.isVerified) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "Please verify your email address first",
+        needsVerification: true,
+        email: user.email
+      });
     }
 
     const token = signToken(user._id);

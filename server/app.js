@@ -13,6 +13,7 @@ import coachRoutes from "./routes/coach.js";
 import playerRoutes from "./routes/player.js";
 import adminRoutes from "./routes/admin.js";
 import eventsRoutes from "./routes/events.js";
+import verificationRoutes from "./routes/verification.js";
 
 export const app = express(); 
 config({path:"./config.env"});
@@ -37,6 +38,7 @@ app.use("/api/coach", coachRoutes);
 app.use("/api/player", playerRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/events", eventsRoutes);
+app.use("/api/verification", verificationRoutes);
 
 // Error middleware should be last
 app.use(errorMiddleware);

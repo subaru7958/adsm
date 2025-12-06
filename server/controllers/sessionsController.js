@@ -56,6 +56,7 @@ export const createSession = async (req, res, next) => {
       coach,
       substituteCoach,
       location,
+      seasonId,
       // special
       specialStartTime,
       specialEndTime,
@@ -72,6 +73,31 @@ export const createSession = async (req, res, next) => {
       gameNotes,
     } = req.body;
 
+    if (!seasonId) {
+      return res.status(400).json({ success: false, message: "Season ID is required" });
+    }
+
+    // Validate session dates against season dates
+    const Season = (await import('../models/season.js')).default;
+    const season = await Season.findById(seasonId);
+    if (!season) {
+      return res.status(404).json({ success: false, message: "Season not found" });
+    }
+
+    // For special sessions, validate the date is within season range
+    if (sessionType === "special" && specialStartTime) {
+      const sessionDate = new Date(specialStartTime);
+      const seasonStart = new Date(season.startDate);
+      const seasonEnd = new Date(season.endDate);
+
+      if (sessionDate < seasonStart || sessionDate > seasonEnd) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Session date must be between ${seasonStart.toLocaleDateString()} and ${seasonEnd.toLocaleDateString()}. The selected date is outside the season range.`
+        });
+      }
+    }
+
     const payload = {
       title,
       sessionType,
@@ -81,6 +107,7 @@ export const createSession = async (req, res, next) => {
       substituteCoach,
       location,
       admin,
+      seasonId,
     };
 
     if (sessionType === "special") {
@@ -112,10 +139,14 @@ export const createSession = async (req, res, next) => {
 export const getSessions = async (req, res, next) => {
   try {
     const admin = req.userId;
-    const { start, end } = req.query; // optional range for expansion
+    const { start, end, season } = req.query; // optional range for expansion
 
-    // fetch sessions for admin
-    const sessions = await TrainingSession.find({ admin })
+    if (!season) {
+      return res.status(400).json({ success: false, message: "Season ID is required" });
+    }
+
+    // fetch sessions for admin and season
+    const sessions = await TrainingSession.find({ admin, seasonId: season })
       .populate("group")
       .populate("coach")
       .populate("substituteCoach");

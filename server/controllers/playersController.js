@@ -2,10 +2,15 @@ import Player from "../models/player.js";
 
 export const createPlayer = async (req, res, next) => {
   try {
-    const { name, email, phone, sport } = req.body;
+    const { name, email, phone, sport, seasonId } = req.body;
     const admin = req.userId;
+    
+    if (!seasonId) {
+      return res.status(400).json({ success: false, message: "Season ID is required" });
+    }
+    
     const photo = req.file ? `/uploads/${req.file.filename}` : undefined;
-    const player = await Player.create({ name, email, phone, sport, photo, admin });
+    const player = await Player.create({ name, email, phone, sport, photo, admin, seasonId });
     res.status(201).json({ success: true, player });
   } catch (err) {
     next(err);
@@ -15,7 +20,13 @@ export const createPlayer = async (req, res, next) => {
 export const getPlayers = async (req, res, next) => {
   try {
     const admin = req.userId;
-    const players = await Player.find({ admin }).sort({ createdAt: -1 });
+    const { season } = req.query;
+    
+    if (!season) {
+      return res.status(400).json({ success: false, message: "Season ID is required" });
+    }
+    
+    const players = await Player.find({ admin, seasonId: season }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, players });
   } catch (err) {
     next(err);

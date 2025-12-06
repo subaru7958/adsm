@@ -19,6 +19,7 @@ const trainingSessionSchema = new mongoose.Schema(
     substituteCoach: { type: mongoose.Schema.Types.ObjectId, ref: "Coach" },
     location: { type: String },
     admin: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    seasonId: { type: mongoose.Schema.Types.ObjectId, ref: "Season", required: true },
 
     // Special session fields
     specialStartTime: {

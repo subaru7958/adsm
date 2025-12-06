@@ -19,6 +19,7 @@ interface Season {
   endDate: string;
   isActive: boolean;
   description?: string;
+  
 }
 
 const Seasons = () => {
@@ -125,8 +126,7 @@ const Seasons = () => {
                   Add a new season to organize your team's activities
                 </DialogDescription>
               </DialogHeader>
-              <fieldset disabled={true} style={{ border: "none", padding: 0 }}>
-              <form onSubmit={handleCreateSeason} className="space-y-4" dis>
+              <form onSubmit={handleCreateSeason} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Season Name *</Label>
                   <Input
@@ -172,7 +172,6 @@ const Seasons = () => {
                   Create Season
                 </Button>
               </form>
-              </fieldset>
             </DialogContent>
           </Dialog>
         </div>

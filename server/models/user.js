@@ -6,6 +6,9 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  name: {
+    type: String,
+  },
   email: {
     type: String,
     required: true,
@@ -25,6 +28,10 @@ const userSchema = new mongoose.Schema({
   secondaryColor: {
     type: String,
     default: "#8b5cf6",
+  },
+  isVerified: {
+    type: Boolean,
+    default: false,
   },
 });
 

@@ -2,10 +2,15 @@ import Coach from "../models/coach.js";
 
 export const createCoach = async (req, res, next) => {
   try {
-    const { name, email, phone, specialty } = req.body;
+    const { name, email, phone, specialty, seasonId } = req.body;
     const admin = req.userId;
+    
+    if (!seasonId) {
+      return res.status(400).json({ success: false, message: "Season ID is required" });
+    }
+    
     const photo = req.file ? `/uploads/${req.file.filename}` : undefined;
-    const coach = await Coach.create({ name, email, phone, specialty, photo, admin });
+    const coach = await Coach.create({ name, email, phone, specialty, photo, admin, seasonId });
     res.status(201).json({ success: true, coach });
   } catch (err) {
     next(err);
@@ -15,7 +20,13 @@ export const createCoach = async (req, res, next) => {
 export const getCoaches = async (req, res, next) => {
   try {
     const admin = req.userId;
-    const coaches = await Coach.find({ admin }).sort({ createdAt: -1 });
+    const { season } = req.query;
+    
+    if (!season) {
+      return res.status(400).json({ success: false, message: "Season ID is required" });
+    }
+    
+    const coaches = await Coach.find({ admin, seasonId: season }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, coaches });
   } catch (err) {
     next(err);
