@@ -1,14 +1,26 @@
-import nodemailer from "nodemailer";
-
-// Create transporter function - creates fresh transporter each time to ensure env vars are loaded
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.SMTP_MAIL,
-      pass: process.env.SMTP_PASSWORD,
+// Using Resend API instead of SMTP
+const sendEmailWithResend = async (to, subject, html, text) => {
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify({
+      from: `${process.env.FROM_NAME || "Team Manager"} <${process.env.FROM_EMAIL || "onboarding@resend.dev"}>`,
+      to: [to],
+      subject,
+      html,
+      text,
+    }),
   });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Resend API error: ${error}`);
+  }
+
+  return await response.json();
 };
 
 // Send verification code email
@@ -18,13 +30,7 @@ export const sendVerificationEmail = async (
   teamName,
   adminName
 ) => {
-  const transporter = createTransporter();
-  const mailOptions = {
-    from: `${process.env.FROM_NAME || "Team Manager"} <${
-      process.env.FROM_EMAIL || process.env.SMTP_MAIL
-    }>`,
-    to: email,
-    subject: "Verify Your Email - Sports Team Manager",
+  const subject = "Verify Your Email - Sports Team Manager";
     html: `
       <!DOCTYPE html>
       <html>
@@ -83,9 +89,9 @@ The Sports Team Manager Team
   };
 
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Verification email sent:', info.messageId);
-    return { success: true, messageId: info.messageId };
+    const result = await sendEmailWithResend(email, subject, html, text);
+    console.log('✅ Verification email sent via Resend:', result.id);
+    return { success: true, messageId: result.id };
   } catch (error) {
     console.error('❌ Error sending verification email:', error);
     throw new Error('Failed to send verification email');
@@ -98,13 +104,7 @@ export const sendAccountVerifiedEmail = async (
   teamName,
   adminName
 ) => {
-  const transporter = createTransporter();
-  const mailOptions = {
-    from: `${process.env.FROM_NAME || "Team Manager"} <${
-      process.env.FROM_EMAIL || process.env.SMTP_MAIL
-    }>`,
-    to: email,
-    subject: "Account Verified - Welcome to Sports Team Manager!",
+  const subject = "Account Verified - Welcome to Sports Team Manager!";
     html: `
       <!DOCTYPE html>
       <html>
@@ -157,9 +157,9 @@ The Sports Team Manager Team
   };
 
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Account verified email sent:', info.messageId);
-    return { success: true, messageId: info.messageId };
+    const result = await sendEmailWithResend(email, subject, html, text);
+    console.log('✅ Account verified email sent via Resend:', result.id);
+    return { success: true, messageId: result.id };
   } catch (error) {
     console.error('❌ Error sending account verified email:', error);
     // Don't throw error here, verification already succeeded
