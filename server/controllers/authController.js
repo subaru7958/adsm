@@ -119,15 +119,17 @@ export const register = async (req, res, next) => {
       // Don't fail registration if email fails
     }
 
+    console.log('✅ Registration successful, sending response...');
     res.status(201).json({
       success: true,
       message: emailSent 
         ? "Registration successful. Please check your email for verification code."
         : `Registration successful. Verification code: ${code} (Email service unavailable)`,
       user: { id: user._id, teamName: user.teamName, email: user.email, teamLogo: user.teamLogo },
-      verificationCode: emailSent ? undefined : code, // Include code in response if email failed
+      verificationCode: emailSent ? undefined : code,
     });
   } catch (err) {
+    console.error('❌ Registration error:', err);
     next(err);
   }
 };
