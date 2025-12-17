@@ -47,26 +47,67 @@ const Dashboard = () => {
           groups: groups.length,
         });
         
-        // Filter upcoming sessions (future sessions only)
+        // Filter and generate upcoming sessions
         const now = new Date();
-        const upcomingSessions = sessions.filter((session: any) => {
-          const sessionDate = session.specialStartTime 
-            ? new Date(session.specialStartTime)
-            : new Date(); // For weekly sessions, use current date as placeholder
-          return sessionDate >= now;
+        const upcomingSessions: any[] = [];
+        
+        sessions.forEach((session: any) => {
+          if (session.sessionType === "special") {
+            // Special sessions - check if future
+            const sessionDate = new Date(session.specialStartTime);
+            if (sessionDate >= now) {
+              upcomingSessions.push(session);
+            }
+          } else if (session.sessionType === "weekly") {
+            // Weekly sessions - generate next occurrence
+            const today = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+            const sessionDay = session.dayOfWeek; // 0 = Sunday, 1 = Monday, etc.
+            
+            // Calculate days until next occurrence
+            let daysUntil = sessionDay - today;
+            if (daysUntil <= 0) daysUntil += 7; // If today or past, get next week
+            
+            // Create next session date
+            const nextSessionDate = new Date(now);
+            nextSessionDate.setDate(now.getDate() + daysUntil);
+            
+            // Set the time
+            const [hours, minutes] = session.weeklyStartTime.split(':');
+            nextSessionDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            
+            // Add to upcoming if it's in the future (or today but later time)
+            if (nextSessionDate >= now) {
+              upcomingSessions.push({
+                ...session,
+                nextOccurrence: nextSessionDate,
+              });
+            }
+          }
         });
         
         setUpcoming(upcomingSessions);
         
         // Combine sessions and events for the events display
-        const sessionEvents = upcomingSessions.map((it: any) => ({
-          _id: it._id || it.id,
-          title: it.title || it.name || "Session",
-          date: it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0,10) : undefined,
-          time: it.specialStartTime ? new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (it.weeklyStartTime || undefined),
-          location: it.location,
-          banner: it.banner || it.photo,
-        }));
+        const sessionEvents = upcomingSessions.map((it: any) => {
+          let displayDate, displayTime;
+          
+          if (it.sessionType === "special") {
+            displayDate = new Date(it.specialStartTime).toISOString().slice(0,10);
+            displayTime = new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          } else if (it.sessionType === "weekly" && it.nextOccurrence) {
+            displayDate = it.nextOccurrence.toISOString().slice(0,10);
+            displayTime = it.weeklyStartTime;
+          }
+          
+          return {
+            _id: it._id || it.id,
+            title: it.title || it.name || "Session",
+            date: displayDate,
+            time: displayTime,
+            location: it.location,
+            banner: it.banner || it.photo,
+          };
+        });
         
         const actualEvents = events.map((event: any) => ({
           _id: event._id,
