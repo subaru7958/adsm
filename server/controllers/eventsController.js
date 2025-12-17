@@ -10,8 +10,17 @@ function toDateOnly(dateStr) {
 
 export const listEvents = async (req, res, next) => {
   try {
-    const { start, end, page = 1, limit = 50, q } = req.query;
+    const { start, end, page = 1, limit = 50, q, season } = req.query;
     const filter = {};
+    
+    // Filter by admin (user who created the events)
+    filter.admin = req.userId;
+    
+    // Filter by season if provided
+    if (season) {
+      filter.season = season;
+    }
+    
     if (start || end) {
       filter.date = {};
       if (start) filter.date.$gte = toDateOnly(start);
@@ -60,9 +69,12 @@ export const listEvents = async (req, res, next) => {
 
 export const createEvent = async (req, res, next) => {
   try {
-    const { title, date, time, location, description } = req.body;
+    const { title, date, time, location, description, season } = req.body;
     if (!title || !date || !time) {
       return res.status(400).json({ success: false, message: "title, date and time are required" });
+    }
+    if (!season) {
+      return res.status(400).json({ success: false, message: "season is required" });
     }
     const bannerPath = req.file ? `/uploads/${req.file.filename}` : undefined;
     const event = await Event.create({
@@ -72,6 +84,8 @@ export const createEvent = async (req, res, next) => {
       location,
       description,
       banner: bannerPath,
+      season,
+      admin: req.userId,
     });
     res.status(201).json({ success: true, event: {
       _id: event._id,
@@ -99,7 +113,11 @@ export const updateEvent = async (req, res, next) => {
     if (description !== undefined) update.description = description;
     if (req.file) update.banner = `/uploads/${req.file.filename}`;
 
-    const event = await Event.findByIdAndUpdate(id, update, { new: true });
+    const event = await Event.findOneAndUpdate(
+      { _id: id, admin: req.userId }, 
+      update, 
+      { new: true }
+    );
     if (!event) return res.status(404).json({ success: false, message: "Event not found" });
 
     res.json({ success: true, event: {
@@ -119,7 +137,7 @@ export const updateEvent = async (req, res, next) => {
 export const deleteEvent = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const event = await Event.findByIdAndDelete(id);
+    const event = await Event.findOneAndDelete({ _id: id, admin: req.userId });
     if (!event) return res.status(404).json({ success: false, message: "Event not found" });
     res.json({ success: true, message: "Deleted" });
   } catch (err) {

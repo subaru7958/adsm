@@ -23,11 +23,12 @@ const Dashboard = () => {
     (async () => {
       setLoading(true);
       try {
-        const [playersRes, coachesRes, groupsRes, sessionsRes, settingsRes] = await Promise.all([
+        const [playersRes, coachesRes, groupsRes, sessionsRes, eventsRes, settingsRes] = await Promise.all([
           api.get(`/api/players?season=${activeSeasonId}`),
           api.get(`/api/coaches?season=${activeSeasonId}`),
           api.get(`/api/groups?season=${activeSeasonId}`),
           api.get(`/api/sessions?season=${activeSeasonId}`),
+          adminApi.events.list({ season: activeSeasonId }),
           adminApi.getSettings(),
         ]);
         
@@ -38,6 +39,7 @@ const Dashboard = () => {
         const coaches = coachesRes.data.coaches || [];
         const groups = groupsRes.data.groups || [];
         const sessions = sessionsRes.data.events || [];
+        const events = eventsRes.data.events || [];
         
         setCounts({
           players: players.length,
@@ -55,14 +57,27 @@ const Dashboard = () => {
         });
         
         setUpcoming(upcomingSessions);
-        setEvents(upcomingSessions.map((it: any) => ({
+        
+        // Combine sessions and events for the events display
+        const sessionEvents = upcomingSessions.map((it: any) => ({
           _id: it._id || it.id,
-          title: it.title || it.name || "Event",
+          title: it.title || it.name || "Session",
           date: it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0,10) : undefined,
           time: it.specialStartTime ? new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (it.weeklyStartTime || undefined),
           location: it.location,
           banner: it.banner || it.photo,
-        })));
+        }));
+        
+        const actualEvents = events.map((event: any) => ({
+          _id: event._id,
+          title: event.title,
+          date: event.date,
+          time: event.time,
+          location: event.location,
+          banner: event.banner,
+        }));
+        
+        setEvents([...sessionEvents, ...actualEvents]);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
       } finally {

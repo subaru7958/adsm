@@ -42,8 +42,8 @@ const Events = () => {
     (async () => {
       setLoading(true);
       try {
-        const { data } = await api.get(`/api/sessions?season=${activeSeasonId}`);
-        const list: any[] = data.events || data.items || [];
+        const { data } = await adminApi.events.list({ season: activeSeasonId });
+        const list: any[] = data.events || [];
         const normalized: UIEvent[] = list.map((it: any) => {
           const id = it._id || it.id;
           const d = it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0, 10) : undefined;
@@ -111,6 +111,7 @@ const Events = () => {
         time: form.time,
         location: form.location || undefined,
         description: form.description || undefined,
+        season: activeSeasonId,
       };
       if (hasFile) {
         payload.append("title", form.title);
@@ -118,6 +119,7 @@ const Events = () => {
         payload.append("time", form.time);
         if (form.location) payload.append("location", form.location);
         if (form.description) payload.append("description", form.description);
+        if (activeSeasonId) payload.append("season", activeSeasonId);
         if (banner) payload.append("banner", banner);
       }
       if (editing) {

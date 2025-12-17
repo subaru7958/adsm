@@ -9,6 +9,8 @@ const eventSchema = new mongoose.Schema(
     location: { type: String },
     description: { type: String },
     banner: { type: String }, // URL path to uploaded image
+    season: { type: mongoose.Schema.Types.ObjectId, ref: "Season", required: true },
+    admin: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   },
   { timestamps: true }
 );
