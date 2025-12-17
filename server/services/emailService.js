@@ -94,6 +94,11 @@ The Sports Team Manager Team
     return { success: true, messageId: result.id };
   } catch (error) {
     console.error('❌ Error sending verification email:', error);
+    // If it's a domain validation error, don't fail completely
+    if (error.message.includes('testing emails') || error.message.includes('verify a domain')) {
+      console.log('⚠️ Email restricted to verified domains - continuing without email');
+      return { success: false, error: 'Domain not verified' };
+    }
     throw new Error('Failed to send verification email');
   }
 };
