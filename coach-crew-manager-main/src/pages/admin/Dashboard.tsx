@@ -27,7 +27,7 @@ const Dashboard = () => {
           api.get(`/api/players?season=${activeSeasonId}`),
           api.get(`/api/coaches?season=${activeSeasonId}`),
           api.get(`/api/groups?season=${activeSeasonId}`),
-          api.get(`/api/sessions?season=${activeSeasonId}`),
+          api.get(`/api/sessions?season=${activeSeasonId}&start=${new Date().toISOString().slice(0,10)}&end=${new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10)}`),
           adminApi.events.list({ season: activeSeasonId }),
           adminApi.getSettings(),
         ]);
@@ -47,63 +47,24 @@ const Dashboard = () => {
           groups: groups.length,
         });
         
-        // Filter and generate upcoming sessions
+        // Filter upcoming sessions (API already expanded weekly sessions)
         const now = new Date();
-        const upcomingSessions: any[] = [];
-        
-        sessions.forEach((session: any) => {
-          if (session.sessionType === "special") {
-            // Special sessions - check if future
-            const sessionDate = new Date(session.specialStartTime);
-            if (sessionDate >= now) {
-              upcomingSessions.push(session);
-            }
-          } else if (session.sessionType === "weekly") {
-            // Weekly sessions - generate next occurrence
-            const today = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-            const sessionDay = session.dayOfWeek; // 0 = Sunday, 1 = Monday, etc.
-            
-            // Calculate days until next occurrence
-            let daysUntil = sessionDay - today;
-            if (daysUntil <= 0) daysUntil += 7; // If today or past, get next week
-            
-            // Create next session date
-            const nextSessionDate = new Date(now);
-            nextSessionDate.setDate(now.getDate() + daysUntil);
-            
-            // Set the time
-            const [hours, minutes] = session.weeklyStartTime.split(':');
-            nextSessionDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-            
-            // Add to upcoming if it's in the future (or today but later time)
-            if (nextSessionDate >= now) {
-              upcomingSessions.push({
-                ...session,
-                nextOccurrence: nextSessionDate,
-              });
-            }
-          }
+        const upcomingSessions = sessions.filter((session: any) => {
+          const sessionDate = session.start ? new Date(session.start) : new Date(session.specialStartTime);
+          return sessionDate >= now;
         });
         
         setUpcoming(upcomingSessions);
         
         // Combine sessions and events for the events display
         const sessionEvents = upcomingSessions.map((it: any) => {
-          let displayDate, displayTime;
-          
-          if (it.sessionType === "special") {
-            displayDate = new Date(it.specialStartTime).toISOString().slice(0,10);
-            displayTime = new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          } else if (it.sessionType === "weekly" && it.nextOccurrence) {
-            displayDate = it.nextOccurrence.toISOString().slice(0,10);
-            displayTime = it.weeklyStartTime;
-          }
+          const sessionDate = it.start ? new Date(it.start) : new Date(it.specialStartTime);
           
           return {
             _id: it._id || it.id,
             title: it.title || it.name || "Session",
-            date: displayDate,
-            time: displayTime,
+            date: sessionDate.toISOString().slice(0,10),
+            time: sessionDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             location: it.location,
             banner: it.banner || it.photo,
           };
