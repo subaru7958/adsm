@@ -34,12 +34,14 @@ type UISession = {
   opponentScore?: string;
   isCompleted?: boolean;
   gameNotes?: string;
+  currentWeekDate?: Date;
+  originalId?: string;
 };
 
-const DAY_LABELS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] as const;
-const DAY_CODES = ["MON","TUE","WED","THU","FRI","SAT","SUN"] as const;
-const codeToLabel: Record<string,string> = Object.fromEntries(DAY_CODES.map((c,i)=>[c, DAY_LABELS[i]]));
-const labelToCode: Record<string,string> = Object.fromEntries(DAY_LABELS.map((l,i)=>[l, DAY_CODES[i]]));
+const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+const DAY_CODES = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
+const codeToLabel: Record<string, string> = Object.fromEntries(DAY_CODES.map((c, i) => [c, DAY_LABELS[i]]));
+const labelToCode: Record<string, string> = Object.fromEntries(DAY_LABELS.map((l, i) => [l, DAY_CODES[i]]));
 
 type SingleSelectOption = { value: string; label: string };
 
@@ -62,7 +64,7 @@ function SingleSelect({
     const q = query.toLowerCase();
     return q ? options.filter(o => o.label.toLowerCase().includes(q)) : options;
   }, [options, query]);
-  const current = options.find(o=>o.value===value)?.label;
+  const current = options.find(o => o.value === value)?.label;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -114,19 +116,19 @@ const Training = () => {
     locationType: "home" as "home" | "away" | "neutral",
   });
   const [groups, setGroups] = useState<Array<{ _id: string; name: string; sport?: string }>>([]);
-  
+
   // Get available sports from groups
   const availableSportsInGroups = useMemo(() => {
     const sports = new Set(groups.map(g => g.sport).filter(Boolean));
     return Array.from(sports).sort();
   }, [groups]);
-  
+
   // Filter groups by selected sport
   const filteredGroups = useMemo(() => {
     if (form.sport === "all") return groups;
     return groups.filter(g => g.sport === form.sport);
   }, [groups, form.sport]);
-  
+
   const groupOptions = useMemo<SingleSelectOption[]>(() => filteredGroups.map(g => ({ value: g._id, label: g.name })), [filteredGroups]);
   const [coaches, setCoaches] = useState<Array<{ _id: string; name: string }>>([]);
   const coachOptions = useMemo<SingleSelectOption[]>(() => coaches.map(c => ({ value: c._id, label: c.name })), [coaches]);
@@ -135,7 +137,7 @@ const Training = () => {
 
   useEffect(() => {
     if (!activeSeasonId) return; // Don't fetch if no season selected
-    
+
     (async () => {
       setLoading(true);
       try {
@@ -151,36 +153,79 @@ const Training = () => {
         const groupSportMap = Object.fromEntries(groupsArr.map((g: any) => [g._id, g.sport]));
         const coachesArr = coachesRes.data.coaches || coachesRes.data.items || [];
         const coachesMap = Object.fromEntries(coachesArr.map((c: any) => [c._id || c.id, c.name]));
-        const normalized: UISession[] = list.map((it: any) => {
+        const normalized: UISession[] = list.flatMap((it: any) => {
           const id = it._id || it.id;
           const type = (it.sessionType || it.type || '').toLowerCase();
-          const dateStr = it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0,10) : undefined;
+          const dateStr = it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0, 10) : undefined;
           const timeStr = it.sessionType === 'weekly' ? (it.weeklyStartTime || '') : (it.specialStartTime ? new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
           const groupName = typeof it.group === 'string' ? (groupsMap[it.group] || it.group) : (it.group?.name || undefined);
           const groupSport = typeof it.group === 'string' ? (groupSportMap[it.group]) : (it.group?.sport);
           const coachName = typeof it.coach === 'string' ? (coachesMap[it.coach] || it.coach) : (it.coach?.name || undefined);
-          return {
-            _id: id,
+
+          const baseSession = {
             name: it.title || it.name || 'Session',
             type: type || (it.dayOfWeek !== undefined ? 'weekly' : 'special'),
             eventType: it.eventType || 'training',
             group: groupName,
             sport: groupSport,
-            date: type === 'special' ? (dateStr || undefined) : undefined,
             time: timeStr,
             location: it.location,
-            start: it.specialStartTime,
-            end: it.specialEndTime,
             days: it.dayOfWeek !== undefined ? [String(it.dayOfWeek)] : undefined,
             coach: coachName,
-            // Game-specific fields
             opponent: it.opponent,
             locationType: it.locationType,
             teamScore: it.teamScore,
             opponentScore: it.opponentScore,
             isCompleted: it.isCompleted,
             gameNotes: it.gameNotes,
-          } as any;
+            originalId: id,
+            currentWeekDate: undefined,
+          };
+
+          if (type === 'weekly' && it.dayOfWeek !== undefined) {
+            const now = new Date();
+            const dow = parseInt(String(it.dayOfWeek), 10);
+            if (!isNaN(dow)) {
+              // Current week instance
+              const currentOcc = new Date(now);
+              const currentDiff = dow - now.getDay();
+              currentOcc.setDate(now.getDate() + currentDiff);
+
+              // Next week instance
+              const nextOcc = new Date(currentOcc);
+              nextOcc.setDate(currentOcc.getDate() + 7);
+
+              const currentInstance = {
+                ...baseSession,
+                _id: `${id}_current`,
+                currentWeekDate: currentOcc,
+                date: undefined,
+                start: undefined,
+                end: undefined,
+              };
+
+              const nextInstance = {
+                ...baseSession,
+                _id: `${id}_next`,
+                currentWeekDate: nextOcc,
+                date: undefined,
+                start: undefined,
+                end: undefined,
+              };
+
+              return [currentInstance, nextInstance];
+            }
+          }
+
+          // Special session
+          return [{
+            ...baseSession,
+            _id: id,
+            date: type === 'special' ? (dateStr || undefined) : undefined,
+            start: it.specialStartTime,
+            end: it.specialEndTime,
+            originalId: id, // Ensure originalId is set for special sessions too
+          }];
         });
         setRows(normalized);
         setGroups(groupsArr);
@@ -199,10 +244,31 @@ const Training = () => {
 
   // Check if session is completed
   const isSessionCompleted = (session: UISession) => {
-    if (session.type === 'special' && session.end) {
-      return new Date(session.end) < new Date();
+    const now = new Date();
+    if ((session.type || '').toLowerCase() === 'special' && session.end) {
+      return new Date(session.end) < now;
     }
-    return false; // Weekly sessions are never "completed" as they repeat
+    // For weekly sessions, treat the current week's occurrence as completed if its scheduled time has passed
+    if ((session.type || '').toLowerCase() === 'weekly' && session.currentWeekDate && session.time) {
+      const occ = new Date(session.currentWeekDate);
+      const [hh, mm] = String(session.time).split(":").map((n) => parseInt(n, 10));
+      occ.setHours(hh || 0, mm || 0, 0, 0);
+      return occ.getTime() < now.getTime();
+    }
+    // Fallback for weekly if no date (legacy/safety)
+    if ((session.type || '').toLowerCase() === 'weekly' && session.days && session.days.length && session.time) {
+      const dowStr = String(session.days[0]); // 0..6 (Sunday..Saturday)
+      const dow = parseInt(dowStr, 10);
+      if (!isNaN(dow)) {
+        const occ = new Date(now);
+        const diff = dow - now.getDay();
+        occ.setDate(now.getDate() + diff);
+        const [hh, mm] = String(session.time).split(":").map((n) => parseInt(n, 10));
+        occ.setHours(hh || 0, mm || 0, 0, 0);
+        return occ.getTime() < now.getTime();
+      }
+    }
+    return false;
   };
 
   const all = rows;
@@ -220,7 +286,7 @@ const Training = () => {
 
   const filterBySearchAndSport = (sessions: UISession[]) => {
     let filtered = sessions;
-    
+
     // Filter by sport
     if (sportFilter !== "all") {
       filtered = filtered.filter(s => s.sport === sportFilter);
@@ -232,11 +298,11 @@ const Training = () => {
     } else if (statusFilter === "upcoming") {
       filtered = filtered.filter(s => !isSessionCompleted(s));
     }
-    
+
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(s => 
+      filtered = filtered.filter(s =>
         (s.name || '').toLowerCase().includes(query) ||
         (s.group || '').toLowerCase().includes(query) ||
         (s.location || '').toLowerCase().includes(query) ||
@@ -244,7 +310,7 @@ const Training = () => {
         (s.sport || '').toLowerCase().includes(query)
       );
     }
-    
+
     return filtered;
   };
 
@@ -252,10 +318,11 @@ const Training = () => {
   const filteredWeekly = useMemo(() => filterBySearchAndSport(weekly), [weekly, searchQuery, sportFilter, statusFilter]);
   const filteredSpecial = useMemo(() => filterBySearchAndSport(special), [special, searchQuery, sportFilter, statusFilter]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, originalId?: string) => {
+    const targetId = originalId || id;
     try {
-      await adminApi.sessions.remove(id);
-      setRows(prev => prev.filter(s => s._id !== id));
+      await adminApi.sessions.remove(targetId);
+      setRows(prev => prev.filter(s => (s.originalId || s._id) !== targetId));
       toast({ title: 'Session Deleted', description: 'The session has been removed.' });
     } catch (err: any) {
       toast({ title: 'Delete failed', description: err?.response?.data?.message || 'Please try again', variant: 'destructive' });
@@ -264,16 +331,16 @@ const Training = () => {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ 
-      name: "", 
-      type: "special", 
+    setForm({
+      name: "",
+      type: "special",
       eventType: "training",
-      date: "", 
-      time: "", 
-      location: "", 
+      date: "",
+      time: "",
+      location: "",
       sport: "all",
-      group: "", 
-      weekly: false, 
+      group: "",
+      weekly: false,
       days: [],
       opponent: "",
       locationType: "home",
@@ -288,7 +355,7 @@ const Training = () => {
       name: s.name || "",
       type: s.type || "special",
       eventType: s.eventType || "training",
-      date: s.date || (s.start ? s.start.slice(0,10) : ""),
+      date: s.date || (s.start ? s.start.slice(0, 10) : ""),
       time: s.time || "",
       location: s.location || "",
       sport: s.sport || matchedGroup?.sport || "all",
@@ -336,13 +403,13 @@ const Training = () => {
           group: form.group || undefined,
           location: form.location || undefined,
         };
-        
+
         // Add game-specific fields
         if (form.eventType !== 'training') {
           base.opponent = form.opponent;
           base.locationType = form.locationType;
         }
-        
+
         if (isWeekly) {
           const day = form.days && form.days.length ? (labelToIndex[codeToLabel[form.days[0]] || form.days[0]] ?? labelToIndex[form.days[0]] ?? 1) : undefined;
           base.dayOfWeek = day;
@@ -354,19 +421,23 @@ const Training = () => {
           base.specialStartTime = start.toISOString();
           base.specialEndTime = end.toISOString();
         }
-        await adminApi.sessions.update(editing._id, base);
-        setRows(prev => prev.map(s => s._id === editing._id ? { 
-          ...s, 
-          name: form.name, 
-          type: base.sessionType, 
+
+        const targetId = editing.originalId || editing._id;
+        await adminApi.sessions.update(targetId, base);
+
+        setRows(prev => prev.map(s => (s.originalId || s._id) === targetId ? {
+          ...s,
+          name: form.name,
+          type: base.sessionType,
           eventType: form.eventType,
-          date: form.date || s.date, 
-          time: form.time || s.time, 
-          location: form.location, 
-          group: form.group, 
-          sport: (groups.find(g=>g._id===form.group)?.sport) || s.sport,
+          date: form.date || s.date,
+          time: form.time || s.time,
+          location: form.location,
+          group: form.group,
+          sport: (groups.find(g => g._id === form.group)?.sport) || s.sport,
           opponent: form.opponent,
           locationType: form.locationType,
+          days: form.days,
         } : s));
         toast({ title: 'Session Updated' });
       } else {
@@ -385,7 +456,7 @@ const Training = () => {
               weeklyEndTime: addHour(form.time),
               seasonId: activeSeasonId,
             };
-            
+
             // Add game fields if not training
             if (form.eventType !== 'training') {
               payload.opponent = form.opponent;
@@ -395,13 +466,13 @@ const Training = () => {
             const created = data.session || payload as any;
             // compute the date within current week for this day index
             const ws = new Date();
-            const dayKey = (() => { const di = (idx + 7) % 7; const d0 = new Date(ws); d0.setDate(ws.getDate() + di); return d0.toISOString().slice(0,10); })();
+            const dayKey = (() => { const di = (idx + 7) % 7; const d0 = new Date(ws); d0.setDate(ws.getDate() + di); return d0.toISOString().slice(0, 10); })();
             const newItem: UISession = {
               _id: created._id || Math.random().toString(36).slice(2),
               name: created.title || form.name,
               type: created.sessionType || 'weekly',
-              group: typeof created.group === 'string' ? created.group : (created.group?.name || (groups.find(g=>g._id===form.group)?.name || form.group)),
-              sport: typeof created.group === 'string' ? (groups.find(g=>g._id===created.group)?.sport) : (created.group?.sport || (groups.find(g=>g._id===form.group)?.sport)),
+              group: typeof created.group === 'string' ? created.group : (created.group?.name || (groups.find(g => g._id === form.group)?.name || form.group)),
+              sport: typeof created.group === 'string' ? (groups.find(g => g._id === created.group)?.sport) : (created.group?.sport || (groups.find(g => g._id === form.group)?.sport)),
               date: dayKey,
               time: form.time,
               location: created.location || form.location,
@@ -426,7 +497,7 @@ const Training = () => {
             specialEndTime: end.toISOString(),
             seasonId: activeSeasonId,
           };
-          
+
           // Add game fields if not training
           if (form.eventType !== 'training') {
             payload.opponent = form.opponent;
@@ -438,8 +509,8 @@ const Training = () => {
             _id: created._id || Math.random().toString(36).slice(2),
             name: created.title || form.name,
             type: created.sessionType || 'special',
-            group: typeof created.group === 'string' ? created.group : (created.group?.name || (groups.find(g=>g._id===form.group)?.name || form.group)),
-            sport: typeof created.group === 'string' ? (groups.find(g=>g._id===created.group)?.sport) : (created.group?.sport || (groups.find(g=>g._id===form.group)?.sport)),
+            group: typeof created.group === 'string' ? created.group : (created.group?.name || (groups.find(g => g._id === form.group)?.name || form.group)),
+            sport: typeof created.group === 'string' ? (groups.find(g => g._id === created.group)?.sport) : (created.group?.sport || (groups.find(g => g._id === form.group)?.sport)),
             date: form.date,
             time: form.time,
             location: created.location || form.location,
@@ -485,9 +556,9 @@ const Training = () => {
               </div>
               <div>
                 <Label>Event Type</Label>
-                <select 
+                <select
                   className="w-full border rounded px-3 py-2 text-sm"
-                  value={form.eventType} 
+                  value={form.eventType}
                   onChange={(e) => setForm({ ...form, eventType: e.target.value as any })}
                 >
                   <option value="training">Training</option>
@@ -519,9 +590,9 @@ const Training = () => {
               </div>
               <div>
                 <Label>Sport/Discipline</Label>
-                <select 
+                <select
                   className="w-full border rounded px-3 py-2 text-sm capitalize"
-                  value={form.sport} 
+                  value={form.sport}
                   onChange={(e) => setForm({ ...form, sport: e.target.value, group: "" })}
                 >
                   <option value="all">All Sports</option>
@@ -539,7 +610,7 @@ const Training = () => {
                   <p className="text-xs text-muted-foreground mt-1">No groups available for {form.sport}</p>
                 )}
               </div>
-              
+
               {/* Game-specific fields */}
               {form.eventType !== 'training' && (
                 <>
@@ -549,9 +620,9 @@ const Training = () => {
                   </div>
                   <div>
                     <Label>Location Type</Label>
-                    <select 
+                    <select
                       className="w-full border rounded px-3 py-2 text-sm"
-                      value={form.locationType} 
+                      value={form.locationType}
                       onChange={(e) => setForm({ ...form, locationType: e.target.value as any })}
                     >
                       <option value="home">Home</option>
@@ -561,14 +632,14 @@ const Training = () => {
                   </div>
                 </>
               )}
-              
+
               {form.weekly && (
                 <div className="md:col-span-2">
                   <Label>Days of week</Label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
-                    {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d => (
+                    {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => (
                       <label key={d} className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={form.days.includes(d)} onChange={() => setForm({ ...form, days: form.days.includes(d) ? form.days.filter(x=>x!==d) : [...form.days, d] })} />
+                        <input type="checkbox" checked={form.days.includes(d)} onChange={() => setForm({ ...form, days: form.days.includes(d) ? form.days.filter(x => x !== d) : [...form.days, d] })} />
                         <span>{d}</span>
                       </label>
                     ))}
@@ -673,115 +744,139 @@ const Training = () => {
               const completed = isSessionCompleted(session);
               const isGame = session.eventType && session.eventType !== 'training';
               return (
-              <Card key={session._id} className={`shadow-card hover:shadow-hover transition-shadow ${completed ? 'border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800' : ''}`}>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle className="text-xl">{session.name}</CardTitle>
-                      <p className="text-sm text-muted-foreground mt-1">{session.group || '-'}</p>
-                    </div>
-                    <div className="flex gap-2 flex-wrap">
-                      {completed && (
-                        <Badge className="bg-green-600">
-                          Completed
-                        </Badge>
-                      )}
-                      <Badge
-                        variant={session.type === "weekly" ? "default" : "secondary"}
-                        className={session.type === "weekly" ? "bg-primary" : "bg-accent"}
-                      >
-                        {session.type || 'special'}
-                      </Badge>
-                      {session.eventType && session.eventType !== 'training' && (
-                        <Badge className="bg-orange-600 capitalize">
-                          {session.eventType}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Calendar className="w-4 h-4" />
-                      <span>
-                        {session.type === 'weekly' ? (
-                          session.days && session.days.length ? session.days.map(d => {
-                            const mapIdx: Record<string, string> = { '0': 'Sunday', '1': 'Monday', '2': 'Tuesday', '3': 'Wednesday', '4': 'Thursday', '5': 'Friday', '6': 'Saturday' };
-                            return mapIdx[String(d)] || codeToLabel[d] || String(d);
-                          }).join(', ') : '-'
-                        ) : (
-                          session.date || '-'
+                <Card key={session._id} className={`shadow-card hover:shadow-hover transition-shadow ${completed ? 'border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800' : ''}`}>
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="text-xl">{session.name}</CardTitle>
+                        <p className="text-sm text-muted-foreground mt-1">{session.group || '-'}</p>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {completed && (
+                          <Badge className="bg-green-600">
+                            Completed
+                          </Badge>
                         )}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Clock className="w-4 h-4" />
-                      <span>{session.time || '-'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <MapPin className="w-4 h-4" />
-                      <span>{session.location || '-'}</span>
-                    </div>
-                    {session.sport && (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <span className="px-2 py-0.5 rounded-full bg-muted text-xs capitalize">{session.sport}</span>
+                        <Badge
+                          variant={session.type === "weekly" ? "default" : "secondary"}
+                          className={session.type === "weekly" ? "bg-primary" : "bg-accent"}
+                        >
+                          {session.type || 'special'}
+                        </Badge>
+                        {session.eventType && session.eventType !== 'training' && (
+                          <Badge className="bg-orange-600 capitalize">
+                            {session.eventType}
+                          </Badge>
+                        )}
                       </div>
-                    )}
-                    {(session as any).coach && (
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap items-center gap-x-8 gap-y-3 text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground">
-                        <User className="w-4 h-4" />
-                        <span>{(session as any).coach}</span>
+                        <Calendar className="w-4 h-4" />
+                        <span>
+                          {session.type === 'weekly' ? (
+                            session.days && session.days.length ? session.days.map(d => {
+                              const mapIdx: Record<string, string> = { '0': 'Sunday', '1': 'Monday', '2': 'Tuesday', '3': 'Wednesday', '4': 'Thursday', '5': 'Friday', '6': 'Saturday' };
+                              return `${mapIdx[String(d)] || codeToLabel[d] || String(d)}${session.currentWeekDate ? ` (${session.currentWeekDate.toLocaleDateString()})` : ''}`;
+                            }).join(', ') : '-'
+                          ) : (
+                            session.date || '-'
+                          )}
+                        </span>
                       </div>
-                    )}
-                  </div>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Clock className="w-4 h-4" />
+                        <span>{session.time || '-'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <MapPin className="w-4 h-4" />
+                        <span>{session.location || '-'}</span>
+                      </div>
+                      {session.sport && (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <span className="px-2 py-0.5 rounded-full bg-muted text-xs capitalize">{session.sport}</span>
+                        </div>
+                      )}
+                      {(session as any).coach && (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <User className="w-4 h-4" />
+                          <span>{(session as any).coach}</span>
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Game-specific information */}
-                  {isGame && (
-                    <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-950 rounded-lg border border-orange-200 dark:border-orange-800">
-                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">vs </span>
-                          <span className="font-semibold">{session.opponent || 'TBD'}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Location: </span>
-                          <span className="capitalize font-medium">{session.locationType || 'TBD'}</span>
-                        </div>
-                        {session.isCompleted && session.teamScore !== undefined && session.opponentScore !== undefined && (
-                          <div className="font-semibold text-lg">
-                            <span className="text-green-600">Score: {session.teamScore} - {session.opponentScore}</span>
+                    {/* Game-specific information */}
+                    {isGame && (
+                      <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-950 rounded-lg border border-orange-200 dark:border-orange-800">
+                        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                          <div>
+                            <span className="text-muted-foreground">vs </span>
+                            <span className="font-semibold">{session.opponent || 'TBD'}</span>
                           </div>
-                        )}
+                          <div>
+                            <span className="text-muted-foreground">Location: </span>
+                            <span className="capitalize font-medium">{session.locationType || 'TBD'}</span>
+                          </div>
+                          {session.isCompleted && session.teamScore !== undefined && session.opponentScore !== undefined && (
+                            <div className="font-semibold text-lg">
+                              <span className="text-green-600">Score: {session.teamScore} - {session.opponentScore}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  <div className="mt-4 border-t" />
-                  <div className="mt-3 flex items-center justify-between">
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(session)}>Edit</Button>
-                      <Button variant="outline" size="sm" onClick={() => { setAssigning(session._id); setAssignCoachId(''); }}>Assign Coach</Button>
+                    <div className="mt-4 border-t" />
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEdit(session)}
+                          disabled={completed}
+                          className={completed ? "opacity-50 cursor-not-allowed" : ""}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => { setAssigning(session._id); setAssignCoachId(''); }}
+                          disabled={completed}
+                          className={completed ? "opacity-50 cursor-not-allowed" : ""}
+                        >
+                          Assign Coach
+                        </Button>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(session._id, session.originalId)}
+                        disabled={completed}
+                        className={completed ? "text-destructive opacity-50 cursor-not-allowed" : "text-destructive"}
+                      >
+                        Delete
+                      </Button>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(session._id)} className="text-destructive">Delete</Button>
-                  </div>
 
-                  {assigning === session._id && (
-                    <div className="mt-3 flex items-center gap-2">
-                      <SingleSelect value={assignCoachId} onChange={setAssignCoachId} options={coachOptions} placeholder="Select coach" title="Coach" />
-                      <Button size="sm" onClick={async () => {
-                        if (!assignCoachId) return;
-                        await adminApi.sessions.update(session._id, { coach: assignCoachId });
-                        const name = coachOptions.find(o => o.value === assignCoachId)?.label || '';
-                        setRows(prev => prev.map(s => s._id === session._id ? ({ ...s, coach: name } as any) : s));
-                        setAssigning(null);
-                        toast({ title: 'Coach Assigned' });
-                      }}>Save</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setAssigning(null)}>Cancel</Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    {assigning === session._id && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <SingleSelect value={assignCoachId} onChange={setAssignCoachId} options={coachOptions} placeholder="Select coach" title="Coach" />
+                        <Button size="sm" onClick={async () => {
+                          if (!assignCoachId) return;
+                          await adminApi.sessions.update(session._id, { coach: assignCoachId });
+                          const name = coachOptions.find(o => o.value === assignCoachId)?.label || '';
+                          setRows(prev => prev.map(s => s._id === session._id ? ({ ...s, coach: name } as any) : s));
+                          setAssigning(null);
+                          toast({ title: 'Coach Assigned' });
+                        }}>Save</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setAssigning(null)}>Cancel</Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               );
             })}
           </div>

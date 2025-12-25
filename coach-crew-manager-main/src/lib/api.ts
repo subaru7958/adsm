@@ -64,11 +64,11 @@ export const adminApi = {
     remove: (id: string) => api.delete(`/api/groups/${id}`),
   },
   sessions: {
-    list: (range?: { start: string; end: string }) =>
-      api.get("/api/sessions", { params: range }),
-    create: (payload: Record<string, any>) => api.post("/api/sessions", payload),
-    update: (id: string, payload: Record<string, any>) => api.put(`/api/sessions/${id}`, payload),
-    remove: (id: string) => api.delete(`/api/sessions/${id}`),
+  list: (params?: { start?: string; end?: string; season?: string }) =>
+  api.get("/api/sessions", { params }),
+  create: (payload: Record<string, any>) => api.post("/api/sessions", payload),
+  update: (id: string, payload: Record<string, any>) => api.put(`/api/sessions/${id}`, payload),
+  remove: (id: string) => api.delete(`/api/sessions/${id}`),
   },
   events: {
     list: (range?: { start?: string; end?: string }) =>

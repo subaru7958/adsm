@@ -12,64 +12,62 @@ const Dashboard = () => {
   const { activeSeasonId, activeSeason } = useSeason();
   const [counts, setCounts] = useState<{ players: number; coaches: number; groups: number } | null>(null);
   const [upcoming, setUpcoming] = useState<any[]>([]);
+  const [pastSessions, setPastSessions] = useState<any[]>([]);
   const [events, setEvents] = useState<Array<{ _id: string; title: string; date?: string; time?: string; location?: string; banner?: string }>>([]);
+  const [pastEvents, setPastEvents] = useState<Array<{ _id: string; title: string; date?: string; time?: string; location?: string; banner?: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [teamSettings, setTeamSettings] = useState<any>(null);
   const [weekFilter, setWeekFilter] = useState<"this" | "next" | "all">("all");
 
   useEffect(() => {
     if (!activeSeasonId) return; // Don't fetch if no season selected
-    
+
     (async () => {
       setLoading(true);
       try {
+        const today = new Date();
+        const startKey = new Date().toISOString().slice(0, 10);
+        const endKey = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const pastStartKey = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
         const [playersRes, coachesRes, groupsRes, sessionsRes, eventsRes, settingsRes] = await Promise.all([
           api.get(`/api/players?season=${activeSeasonId}`),
           api.get(`/api/coaches?season=${activeSeasonId}`),
           api.get(`/api/groups?season=${activeSeasonId}`),
-          api.get(`/api/sessions?season=${activeSeasonId}&start=${new Date().toISOString().slice(0,10)}&end=${new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10)}`),
+          api.get(`/api/sessions?season=${activeSeasonId}&start=${startKey}&end=${endKey}`),
           adminApi.events.list({ season: activeSeasonId }),
           adminApi.getSettings(),
         ]);
-        
+
         setTeamSettings(settingsRes.data.settings);
-        
+
         // Calculate counts from season-specific data
         const players = playersRes.data.players || [];
         const coaches = coachesRes.data.coaches || [];
         const groups = groupsRes.data.groups || [];
         const sessions = sessionsRes.data.events || [];
         const events = eventsRes.data.events || [];
-        
+
         setCounts({
           players: players.length,
           coaches: coaches.length,
           groups: groups.length,
         });
-        
+
         // Filter upcoming sessions (API already expanded weekly sessions)
         const now = new Date();
         const upcomingSessions = sessions.filter((session: any) => {
           const sessionDate = session.start ? new Date(session.start) : new Date(session.specialStartTime);
           return sessionDate >= now;
         });
-        
-        setUpcoming(upcomingSessions);
-        
-        // Combine sessions and events for the events display
-        const sessionEvents = upcomingSessions.map((it: any) => {
-          const sessionDate = it.start ? new Date(it.start) : new Date(it.specialStartTime);
-          
-          return {
-            _id: it._id || it.id,
-            title: it.title || it.name || "Session",
-            date: sessionDate.toISOString().slice(0,10),
-            time: sessionDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            location: it.location,
-            banner: it.banner || it.photo,
-          };
+        const pastSess = sessions.filter((session: any) => {
+          const sessionDate = session.start ? new Date(session.start) : new Date(session.specialStartTime);
+          return sessionDate < now;
         });
-        
+        setUpcoming(upcomingSessions);
+        setPastSessions(pastSess.sort((a: any, b: any) => new Date(b.start || b.specialStartTime).getTime() - new Date(a.start || a.specialStartTime).getTime()).slice(0, 5));
+
+        // Only use actual events for the "Upcoming Events" card; do not include training sessions
         const actualEvents = events.map((event: any) => ({
           _id: event._id,
           title: event.title,
@@ -78,8 +76,13 @@ const Dashboard = () => {
           location: event.location,
           banner: event.banner,
         }));
-        
-        setEvents([...sessionEvents, ...actualEvents]);
+
+        setEvents(actualEvents);
+        // Past events for Recent Activity
+        const pastEv = actualEvents.filter(e => (e.date ? new Date(e.date) : new Date(0)) < now)
+          .sort((a, b) => new Date(b.date || '1970-01-01').getTime() - new Date(a.date || '1970-01-01').getTime())
+          .slice(0, 5);
+        setPastEvents(pastEv);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
       } finally {
@@ -90,7 +93,7 @@ const Dashboard = () => {
 
   const filteredUpcoming = useMemo(() => {
     const now = new Date();
-    
+
     if (weekFilter === "this") {
       const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
       const weekEnd = endOfWeek(now, { weekStartsOn: 1 }); // Sunday
@@ -104,7 +107,7 @@ const Dashboard = () => {
         isWithinInterval(new Date(session.start), { start: nextWeekStart, end: nextWeekEnd })
       );
     }
-    
+
     return upcoming;
   }, [upcoming, weekFilter]);
 
@@ -156,56 +159,53 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {upcoming.slice(0, 5).map((u, idx) => {
-                const isGame = u.eventType && u.eventType !== 'training';
-                const startDate = new Date(u.start);
-                const groupName = typeof u.group === 'object' && u.group ? u.group.name : '—';
-                
+              {[...pastSessions, ...pastEvents].slice(0, 5).map((item: any, idx: number) => {
+                const isSession = item.start || item.specialStartTime;
+                const isGame = !isSession && item.eventType && item.eventType !== 'training';
+                const startDate = new Date(isSession ? (item.start || item.specialStartTime) : (item.date || new Date()));
+                const groupName = isSession ? (typeof item.group === 'object' && item.group ? item.group.name : '—') : undefined;
+
                 return (
-                  <div 
-                    key={idx} 
-                    className={`p-3 rounded-lg border transition-colors ${
-                      isGame 
-                        ? 'border-orange-300 bg-orange-50 dark:bg-orange-950 dark:border-orange-800' 
-                        : 'border-border bg-card'
-                    }`}
-                  >
+                  <div key={idx} className={`p-3 rounded-lg border transition-colors ${isGame
+                      ? 'border-orange-300 bg-orange-50 dark:bg-orange-950 dark:border-orange-800'
+                      : 'border-border bg-card'
+                    }`}>
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${isGame ? 'bg-orange-600' : 'bg-primary'}`} />
-                        <h4 className="font-semibold text-sm">{u.title || "Session"}</h4>
+                        <h4 className="font-semibold text-sm">{item.title || (isSession ? 'Session' : 'Event')}</h4>
+                        <Badge variant="outline" className="text-[10px] ml-2">Passed</Badge>
                       </div>
                       {isGame && (
-                        <Badge className="bg-orange-600 text-xs capitalize">
-                          {u.eventType}
-                        </Badge>
+                        <Badge className="bg-orange-600 text-xs capitalize">{item.eventType}</Badge>
                       )}
                     </div>
-                    
                     <div className="ml-5 space-y-1">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Calendar className="w-3 h-3" />
-                        <span>{format(startDate, "MMM dd, yyyy")}</span>
+                        <span>{format(startDate, 'MMM dd, yyyy')}</span>
                         <Clock className="w-3 h-3 ml-2" />
-                        <span>{format(startDate, "h:mm a")}</span>
+                        <span>{format(startDate, 'h:mm a')}</span>
                       </div>
-                      
-                      {isGame && u.opponent && (
+                      {isGame && item.opponent && (
                         <div className="text-xs font-medium">
                           <span className="text-muted-foreground">vs </span>
-                          <span>{u.opponent}</span>
+                          <span>{item.opponent}</span>
                         </div>
                       )}
-                      
-                      <div className="text-xs text-muted-foreground">
-                        <span>Group: </span>
-                        <span className="font-medium">{groupName}</span>
-                      </div>
+                      {isSession && (
+                        <div className="text-xs text-muted-foreground">
+                          <span>Group: </span>
+                          <span className="font-medium">{groupName}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
-              {!upcoming.length && <p className="text-sm text-muted-foreground">No recent activity</p>}
+              {!pastSessions.length && !pastEvents.length && (
+                <p className="text-sm text-muted-foreground">No recent activity</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -250,15 +250,14 @@ const Dashboard = () => {
                 const groupSport = typeof u.group === 'object' && u.group ? u.group.sport : undefined;
                 const startDate = new Date(u.start);
                 const endDate = new Date(u.end);
-                
+
                 return (
-                  <div 
-                    key={idx} 
-                    className={`p-3 rounded-lg border transition-colors ${
-                      isGame 
-                        ? 'border-orange-300 bg-orange-50 dark:bg-orange-950 dark:border-orange-800' 
+                  <div
+                    key={idx}
+                    className={`p-3 rounded-lg border transition-colors ${isGame
+                        ? 'border-orange-300 bg-orange-50 dark:bg-orange-950 dark:border-orange-800'
                         : 'border-border bg-card'
-                    }`}
+                      }`}
                   >
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-2">
@@ -273,7 +272,7 @@ const Dashboard = () => {
                         {format(startDate, "MMM dd")}
                       </span>
                     </div>
-                    
+
                     {isGame && u.opponent && (
                       <div className="text-sm font-medium mb-1">
                         <span className="text-muted-foreground">vs </span>
@@ -283,17 +282,17 @@ const Dashboard = () => {
                         )}
                       </div>
                     )}
-                    
+
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                       <Clock className="w-3 h-3" />
                       <span>{format(startDate, "h:mm a")} - {format(endDate, "h:mm a")}</span>
                     </div>
-                    
+
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                       <MapPin className="w-3 h-3" />
                       <span>{u.location || "TBD"}</span>
                     </div>
-                    
+
                     <div className="flex items-center gap-2 text-xs">
                       <span className="text-muted-foreground">Group:</span>
                       <span className="font-medium">{groupName}</span>
@@ -308,11 +307,11 @@ const Dashboard = () => {
               })}
               {!filteredUpcoming.length && (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  {weekFilter === "this" 
-                    ? "No sessions this week" 
-                    : weekFilter === "next" 
-                    ? "No sessions next week" 
-                    : "No upcoming sessions"}
+                  {weekFilter === "this"
+                    ? "No sessions this week"
+                    : weekFilter === "next"
+                      ? "No sessions next week"
+                      : "No upcoming sessions"}
                 </p>
               )}
             </div>
@@ -328,7 +327,7 @@ const Dashboard = () => {
               const nowKey = new Date().toISOString().slice(0, 10);
               const upcomingEvents = events
                 .filter(e => (e.date || '') >= nowKey)
-                .sort((a,b) => (a.date||'').localeCompare(b.date||''))
+                .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
                 .slice(0, 6);
               if (!upcomingEvents.length) return <div className="text-sm text-muted-foreground">No upcoming events</div>;
               return (
@@ -337,7 +336,11 @@ const Dashboard = () => {
                     <div key={ev._id} className="rounded-lg overflow-hidden border bg-card">
                       <div className="relative h-20 w-full bg-muted">
                         {ev.banner ? (
-                          <img src={ev.banner} alt={ev.title} className="h-full w-full object-cover" />
+                          <img
+                            src={ev.banner.startsWith('http') ? ev.banner : `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${ev.banner}`}
+                            alt={ev.title}
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
                           <div className="h-full w-full bg-gradient-to-r from-primary/20 to-primary/5" />
                         )}

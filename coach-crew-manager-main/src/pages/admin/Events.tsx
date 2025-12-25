@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Calendar, MapPin, Plus, Edit, Trash2 } from "lucide-react";
+import { Calendar, MapPin, Plus, Edit, Trash2, Eye } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { adminApi, api } from "@/lib/api";
 import { useSeason } from "@/contexts/SeasonContext";
@@ -30,6 +31,7 @@ const Events = () => {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<UIEvent | null>(null);
+  const [viewing, setViewing] = useState<UIEvent | null>(null);
   const [form, setForm] = useState({ title: "", date: "", time: "", location: "", description: "" });
   const [banner, setBanner] = useState<File | null>(null);
   const [bannerPreview, setBannerPreview] = useState<string>("");
@@ -38,7 +40,7 @@ const Events = () => {
 
   useEffect(() => {
     if (!activeSeasonId) return; // Don't fetch if no season selected
-    
+
     (async () => {
       setLoading(true);
       try {
@@ -46,8 +48,9 @@ const Events = () => {
         const list: any[] = data.events || [];
         const normalized: UIEvent[] = list.map((it: any) => {
           const id = it._id || it.id;
-          const d = it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0, 10) : undefined;
-          const t = it.specialStartTime ? new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (it.weeklyStartTime || undefined);
+          // Prioritize 'date' and 'time' fields from the Event model
+          const d = it.date ? new Date(it.date).toISOString().slice(0, 10) : (it.specialStartTime ? new Date(it.specialStartTime).toISOString().slice(0, 10) : undefined);
+          const t = it.time || (it.specialStartTime ? new Date(it.specialStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (it.weeklyStartTime || undefined));
           return {
             _id: id,
             title: it.title || it.name || "Event",
@@ -84,7 +87,7 @@ const Events = () => {
     setEditing(e);
     setForm({ title: e.title || "", date: e.date || "", time: e.time || "", location: e.location || "", description: e.description || "" });
     setBanner(null);
-    setBannerPreview(e.banner || "");
+    setBannerPreview(e.banner ? (e.banner.startsWith('http') ? e.banner : `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${e.banner}`) : "");
     setShowForm(true);
   };
   const onBannerChange = (ev: React.ChangeEvent<HTMLInputElement>) => {
@@ -239,9 +242,13 @@ const Events = () => {
           <CardTitle>All Events</CardTitle>
         </CardHeader>
         <CardContent>
+          {/* ... Table code ... */}
+          {/* We keep the table as is, just appending the dialog after the pagination or table */}
+          {/* Actually, let's just insert the dialog here or at the end of the component return */}
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Image</TableHead>
                 <TableHead>Title</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Time</TableHead>
@@ -252,12 +259,26 @@ const Events = () => {
             <TableBody>
               {!loading && paged.map((ev) => (
                 <TableRow key={ev._id}>
+                  <TableCell>
+                    {ev.banner ? (
+                      <img
+                        src={ev.banner.startsWith('http') ? ev.banner : `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${ev.banner}`}
+                        alt={ev.title}
+                        className="w-10 h-10 object-cover rounded"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">No Img</div>
+                    )}
+                  </TableCell>
                   <TableCell className="font-medium">{ev.title}</TableCell>
                   <TableCell><div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" />{ev.date || '-'}</div></TableCell>
                   <TableCell>{ev.time || '-'}</TableCell>
                   <TableCell><div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-muted-foreground" />{ev.location || '-'}</div></TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => setViewing(ev)}>
+                        <Eye className="w-4 h-4 text-muted-foreground" />
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => openEdit(ev)}>
                         <Edit className="w-4 h-4" />
                       </Button>
@@ -270,7 +291,7 @@ const Events = () => {
               ))}
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={5}>Loading...</TableCell>
+                  <TableCell colSpan={6}>Loading...</TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -279,14 +300,57 @@ const Events = () => {
             <div className="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</div>
             <div className="flex items-center gap-2">
               <select className="border rounded px-2 py-1 text-sm" value={pageSize} onChange={(e) => { setPageSize(parseInt(e.target.value)); setPage(1); }}>
-                {[5,10,20,50].map(s => <option key={s} value={s}>{s}/page</option>)}
+                {[5, 10, 20, 50].map(s => <option key={s} value={s}>{s}/page</option>)}
               </select>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p-1))} disabled={currentPage<=1}>Prev</Button>
-              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={currentPage>=totalPages}>Next</Button>
+              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1}>Prev</Button>
+              <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>Next</Button>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Event Details Dialog */}
+      <Dialog open={!!viewing} onOpenChange={(open) => !open && setViewing(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{viewing?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {viewing?.banner && (
+              <div className="w-full h-64 rounded-lg overflow-hidden bg-muted">
+                <img
+                  src={viewing.banner.startsWith('http') ? viewing.banner : `${import.meta.env.VITE_API_URL || "http://localhost:5000"}${viewing.banner}`}
+                  alt={viewing.title}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-primary" />
+                <span className="font-semibold">Date:</span>
+                <span>{viewing?.date || "TBD"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 flex items-center justify-center font-bold text-primary">T</div>
+                <span className="font-semibold">Time:</span>
+                <span>{viewing?.time || "TBD"}</span>
+              </div>
+              <div className="col-span-2 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-primary" />
+                <span className="font-semibold">Location:</span>
+                <span>{viewing?.location || "TBD"}</span>
+              </div>
+            </div>
+            {viewing?.description && (
+              <div className="bg-muted/50 p-4 rounded-lg">
+                <h4 className="text-sm font-semibold mb-2">Description</h4>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{viewing.description}</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

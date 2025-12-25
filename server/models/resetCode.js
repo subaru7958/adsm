@@ -10,11 +10,6 @@ const resetCodeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    userType: {
-      type: String,
-      enum: ["admin", "player", "coach"],
-      required: true,
-    },
     expiresAt: {
       type: Date,
       required: true,

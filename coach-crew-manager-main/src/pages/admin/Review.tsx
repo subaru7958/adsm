@@ -18,6 +18,10 @@ const Review = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [daysFilter, setDaysFilter] = useState(30);
   const [sportFilter, setSportFilter] = useState<string>("all");
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [noteGeneral, setNoteGeneral] = useState("");
+  const [notePlayerNotes, setNotePlayerNotes] = useState<Array<{ player: string; note: string }>>([]);
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
     if (activeSeasonId) {
@@ -41,30 +45,94 @@ const Review = () => {
 
   const fetchCompletedSessions = async () => {
     if (!activeSeasonId) return;
-    
     try {
       setLoading(true);
-      const { data } = await api.get(`/api/sessions?season=${activeSeasonId}`);
-      const sessions = data.events || [];
-      
-      // Filter only completed sessions
-      const completed = sessions.filter((session: any) => session.isCompleted === true);
-      
-      setCompletedSessions(completed);
+      // Fetch expanded sessions for the last N days up to now
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - daysFilter);
+      const startStr = start.toISOString().slice(0,10);
+      const endStr = end.toISOString().slice(0,10);
+      const { data } = await api.get(`/api/sessions?season=${activeSeasonId}&start=${startStr}&end=${endStr}`);
+      const events = data.events || [];
+
+      const now = new Date();
+      const passed = events.filter((e: any) => {
+        const s = new Date(e.start);
+        const en = new Date(e.end);
+        return (en || s) < now;
+      }).map((e: any) => ({
+        sessionId: e._id,
+        sessionTitle: e.title || 'Training Session',
+        date: e.start,
+        dateStr: new Date(e.start).toISOString().slice(0,10),
+        group: e.group,
+        coach: e.coach,
+        substituteCoach: e.substituteCoach,
+        location: e.location,
+        eventType: e.eventType,
+        notes: [],
+        attendance: [],
+        attended: 0,
+        totalPlayers: 0,
+        attendanceRate: 0,
+      }));
+
+      setCompletedSessions(passed);
     } catch (err: any) {
-      toast({
-        title: "Error",
-        description: err?.response?.data?.message || "Failed to load completed sessions",
-        variant: "destructive",
-      });
+      toast({ title: 'Error', description: err?.response?.data?.message || 'Failed to load sessions', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleViewDetails = (session: any) => {
+  const handleViewDetails = async (session: any) => {
     setSelectedSession(session);
     setDialogOpen(true);
+    try {
+      const dateKey = session.dateStr || (session.date ? new Date(session.date).toISOString().slice(0,10) : undefined);
+      if (!dateKey) return;
+      const { data } = await api.get(`/api/admin/session-review/${session.sessionId}/${dateKey}`);
+      setSelectedSession((prev: any) => ({
+        ...(prev || session),
+        attendance: data.attendance || [],
+        notes: data.notes || [],
+        attended: (data.attendance || []).filter((a: any) => a.status === 'present').length,
+        totalPlayers: (data.attendance || []).length,
+        attendanceRate: (data.attendance || []).length ? Math.round(((data.attendance || []).filter((a:any)=>a.status==='present').length/(data.attendance||[]).length)*100) : 0,
+      }));
+    } catch (err: any) {
+      // details fetch failed; keep minimal
+    }
+  };
+
+  const openNoteDialog = (session: any) => {
+    setSelectedSession(session);
+    // Pre-fill from existing admin note if present (notes without coach are admin)
+    const adminNote = (session.notes || []).find((n: any) => !n.coach);
+    setNoteGeneral(adminNote?.generalNote || "");
+    setNotePlayerNotes(adminNote?.playerNotes?.map((pn: any) => ({ player: pn.player?._id || pn.player, note: pn.note })) || []);
+    setNoteDialogOpen(true);
+  };
+
+  const saveAdminNote = async () => {
+    if (!selectedSession) return;
+    try {
+      setSavingNote(true);
+      await api.post("/api/admin/session-notes", {
+        sessionId: selectedSession.sessionId,
+        date: selectedSession.date,
+        generalNote: noteGeneral.trim() || undefined,
+        playerNotes: notePlayerNotes.filter(p => p.player && p.note?.trim()),
+      });
+      toast({ title: "Saved", description: "Admin note saved successfully" });
+      setNoteDialogOpen(false);
+      fetchCompletedSessions();
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.response?.data?.message || "Failed to save note", variant: "destructive" });
+    } finally {
+      setSavingNote(false);
+    }
   };
 
   if (loading) {
@@ -211,9 +279,12 @@ const Review = () => {
                   </span>
                 </div>
 
-                <div className="pt-4 border-t">
+                <div className="pt-4 border-t flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => handleViewDetails(session)}>
                     View Full Details
+                  </Button>
+                  <Button size="sm" onClick={() => openNoteDialog(session)}>
+                    Add/Edit Admin Note
                   </Button>
                 </div>
               </CardContent>
@@ -278,15 +349,31 @@ const Review = () => {
                 </div>
               </div>
 
-              {/* General Notes */}
-              {selectedSession.notes.length > 0 && selectedSession.notes[0].generalNote && (
+              {/* Notes List (Coach/Admin) */}
+              {(selectedSession.notes || []).length > 0 && (
                 <div>
-                  <h3 className="text-lg font-semibold mb-3">General Session Notes</h3>
-                  <div className="bg-muted/50 p-4 rounded-lg">
-                    <p className="text-sm whitespace-pre-wrap">{selectedSession.notes[0].generalNote}</p>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      By: {selectedSession.notes[0].coach?.name || "Unknown Coach"}
-                    </p>
+                  <h3 className="text-lg font-semibold mb-3">Notes</h3>
+                  <div className="space-y-3">
+                    {selectedSession.notes.map((note: any, idx: number) => (
+                      <div key={idx} className="bg-muted/50 p-4 rounded-lg">
+                        {note.generalNote && (
+                          <p className="text-sm whitespace-pre-wrap">{note.generalNote}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-2">
+                          By: {note.coach?.name || "Admin"}
+                        </p>
+                        {note.playerNotes?.length > 0 && (
+                          <div className="mt-2 space-y-2">
+                            {note.playerNotes.map((pn: any, i: number) => (
+                              <div key={i} className="text-sm text-muted-foreground">
+                                <span className="font-medium">{pn.player?.name || pn.player?.email || 'Player'}: </span>
+                                <span>{pn.note}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -309,6 +396,63 @@ const Review = () => {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+    {/* Admin Note Dialog */}
+      <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add/Edit Admin Note</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <label className="text-sm font-medium">General Note</label>
+              <textarea
+                className="w-full border rounded p-2 mt-1 min-h-[120px] bg-background"
+                value={noteGeneral}
+                onChange={(e) => setNoteGeneral(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Player Notes</label>
+              <div className="text-xs text-muted-foreground mb-2">Add notes for individual players (optional)</div>
+              <div className="space-y-2">
+                {notePlayerNotes.map((pn, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <input
+                      className="flex-1 border rounded p-2"
+                      placeholder="Player ID"
+                      value={pn.player}
+                      onChange={(e) => {
+                        const arr = [...notePlayerNotes];
+                        arr[idx] = { ...arr[idx], player: e.target.value };
+                        setNotePlayerNotes(arr);
+                      }}
+                    />
+                    <input
+                      className="flex-[2] border rounded p-2"
+                      placeholder="Note"
+                      value={pn.note}
+                      onChange={(e) => {
+                        const arr = [...notePlayerNotes];
+                        arr[idx] = { ...arr[idx], note: e.target.value };
+                        setNotePlayerNotes(arr);
+                      }}
+                    />
+                    <Button variant="outline" size="sm" onClick={() => setNotePlayerNotes(prev => prev.filter((_,i)=> i!==idx))}>Remove</Button>
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={() => setNotePlayerNotes(prev => [...prev, { player: '', note: '' }])}>Add Player Note</Button>
+              </div>
+              <div className="text-xs text-muted-foreground mt-2">Tip: use the Attendance list in details to copy Player IDs for accuracy.</div>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>Cancel</Button>
+              <Button onClick={saveAdminNote} disabled={savingNote}>
+                {savingNote ? 'Saving…' : 'Save Note'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

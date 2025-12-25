@@ -12,6 +12,50 @@ import { getSeasons, createSeason, deleteSeason, setActiveSeason } from "../cont
 
 const router = express.Router();
 
+// Admin add/update session notes
+router.post("/session-notes", protect, async (req, res, next) => {
+  try {
+    const admin = req.userId;
+    const { sessionId, date, generalNote, playerNotes } = req.body;
+
+    if (!sessionId || !date) {
+      return res.status(400).json({ success: false, message: "sessionId and date are required" });
+    }
+
+    const day = new Date(date);
+    if (isNaN(day)) {
+      return res.status(400).json({ success: false, message: "Invalid date format" });
+    }
+
+    // Verify session belongs to admin
+    const session = await TrainingSession.findOne({ _id: sessionId, admin });
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Session not found" });
+    }
+
+    const payload = {
+      admin,
+      session: sessionId,
+      date: day,
+    };
+
+    if (typeof generalNote === "string") payload.generalNote = generalNote;
+    if (Array.isArray(playerNotes)) payload.playerNotes = playerNotes;
+
+    const note = await SessionNote.findOneAndUpdate(
+      { admin, session: sessionId, date: day },
+      { $set: payload },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    )
+      .populate("coach", "name email")
+      .populate("playerNotes.player", "name email");
+
+    res.status(200).json({ success: true, note });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/session-review/:sessionId/:date", protect, async (req, res, next) => {
   try {
     const admin = req.userId;

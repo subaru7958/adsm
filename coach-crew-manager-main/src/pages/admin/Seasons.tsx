@@ -8,9 +8,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Calendar, Plus, CheckCircle2, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { adminApi } from "@/lib/api";
+import { adminApi, api } from "@/lib/api";
 import { useSeason } from "@/contexts/SeasonContext";
 import { format } from "date-fns";
+import { Badge } from "@/components/ui/badge";
 
 interface Season {
   _id: string;
@@ -35,6 +36,12 @@ const Seasons = () => {
     endDate: "",
     description: ""
   });
+  const [summaries, setSummaries] = useState<Record<string, {
+    days: { date: string; hasItem: boolean }[];
+    outOfRange: boolean;
+    insideCount: number;
+    outsideCount: number;
+  }>>({});
 
   useEffect(() => {
     fetchSeasons();
@@ -43,7 +50,10 @@ const Seasons = () => {
   const fetchSeasons = async () => {
     try {
       const { data } = await adminApi.getSeasons();
-      setSeasons(data.seasons || []);
+      const list: Season[] = data.seasons || [];
+      setSeasons(list);
+      // Load summaries after seasons load
+      loadSummaries(list);
     } catch (err: any) {
       toast({
         title: "Error",
@@ -92,6 +102,93 @@ const Seasons = () => {
         description: err?.response?.data?.message || "Failed to delete season",
         variant: "destructive"
       });
+    }
+  };
+
+  const clampDate = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  const loadSummaries = async (list: Season[]) => {
+    try {
+      const entries = await Promise.all(list.map(async (s) => {
+        const sStart = clampDate(new Date(s.startDate));
+        const sEnd = clampDate(new Date(s.endDate));
+        // pick a 28-day window around today within season bounds for the mini timeline
+        const today = clampDate(new Date());
+        const winStart = clampDate(new Date(Math.max(sStart.getTime(), today.getTime() - 14*24*60*60*1000)));
+        const winEnd = clampDate(new Date(Math.min(sEnd.getTime(), today.getTime() + 13*24*60*60*1000)));
+        const startStr = winStart.toISOString().slice(0,10);
+        const endStr = winEnd.toISOString().slice(0,10);
+
+        // fetch expanded sessions within window
+        let sessionEvents: any[] = [];
+        try {
+          const { data } = await api.get(`/api/sessions?season=${s._id}&start=${startStr}&end=${endStr}`);
+          sessionEvents = data.events || [];
+        } catch {}
+
+        // fetch raw sessions to determine weekly/special patterns for out-of-range
+        let rawSessions: any[] = [];
+        try {
+          const { data } = await api.get(`/api/sessions?season=${s._id}`);
+          rawSessions = data.sessions || data.events || [];
+        } catch {}
+
+        // fetch events list for season
+        let seasonEvents: any[] = [];
+        try {
+          const { data } = await adminApi.events.list({ season: s._id });
+          seasonEvents = data.events || [];
+        } catch {}
+
+        const daySet = new Set<string>();
+        sessionEvents.forEach((ev) => {
+          const d = new Date(ev.start);
+          const key = d.toISOString().slice(0,10);
+          daySet.add(key);
+        });
+        seasonEvents.forEach((ev) => {
+          const key = (ev.date || '').slice(0,10);
+          if (key && key >= startStr && key <= endStr) daySet.add(key);
+        });
+
+        // Determine out-of-range: any event outside season, any special session outside season, any weekly sessions (repeat beyond season)
+        let outsideCount = 0;
+        let outOfRange = false;
+        seasonEvents.forEach((ev) => {
+          const d = ev.date ? new Date(ev.date) : null;
+          if (d && (d < sStart || d > sEnd)) {
+            outOfRange = true; outsideCount += 1;
+          }
+        });
+        rawSessions.forEach((rs) => {
+          if (rs.sessionType === 'special') {
+            const d = rs.specialStartTime ? new Date(rs.specialStartTime) : null;
+            if (d && (d < sStart || d > sEnd)) { outOfRange = true; outsideCount += 1; }
+          } else if (rs.sessionType === 'weekly') {
+            // weekly repeats beyond season end; mark as out-of-range indicator
+            outOfRange = true; outsideCount += 1;
+          }
+        });
+
+        // build days array for the mini timeline window
+        const days: { date: string; hasItem: boolean }[] = [];
+        for (let d = new Date(winStart); d <= winEnd; d.setDate(d.getDate() + 1)) {
+          const key = d.toISOString().slice(0,10);
+          days.push({ date: key, hasItem: daySet.has(key) });
+        }
+
+        return [s._id, {
+          days,
+          outOfRange,
+          insideCount: daySet.size,
+          outsideCount,
+        } as const] as const;
+      }));
+      const obj: any = {};
+      entries.forEach(([id, summary]) => { obj[id] = summary; });
+      setSummaries(obj);
+    } catch (e) {
+      // ignore summary failures
     }
   };
 
@@ -207,6 +304,9 @@ const Seasons = () => {
                   <CardTitle className="flex items-center gap-2">
                     <Calendar className="w-5 h-5" />
                     {season.name}
+                    {summaries[season._id]?.outOfRange && (
+                      <Badge variant="destructive" className="ml-2">Out-of-range items</Badge>
+                    )}
                   </CardTitle>
                   <CardDescription>
                     {format(new Date(season.startDate), "MMM d, yyyy")} - {format(new Date(season.endDate), "MMM d, yyyy")}
@@ -216,6 +316,25 @@ const Seasons = () => {
                   {season.description && (
                     <p className="text-sm text-muted-foreground mb-4">{season.description}</p>
                   )}
+
+                  {/* Mini timeline strip */}
+                  {summaries[season._id] && (
+                    <div className="mb-3">
+                      <div className="text-xs text-muted-foreground mb-1">Upcoming window</div>
+                      <div className="grid grid-cols-14 gap-1">
+                        {summaries[season._id].days.map((d, idx) => (
+                          <div key={idx} title={d.date} className={`h-2 rounded ${d.hasItem ? 'bg-primary' : 'bg-muted'}`} />
+                        ))}
+                      </div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        <span>{summaries[season._id].insideCount} in-range</span>
+                        {summaries[season._id].outOfRange && (
+                          <span className="ml-2 text-destructive">• {summaries[season._id].outsideCount} flagged</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex gap-2">
                     <Button
                       onClick={(e) => {

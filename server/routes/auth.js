@@ -18,21 +18,16 @@ router.post("/player-login", playerLogin);
 // Forgot Password - Send Code
 router.post("/forgot-password", async (req, res, next) => {
   try {
-    const { email, userType } = req.body;
+    const { email } = req.body;
 
-    if (!email || !userType) {
-      return res.status(400).json({ success: false, message: "Email and user type are required" });
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email is required" });
     }
 
-    // Check if user exists
-    let user;
-    if (userType === "admin") {
-      user = await User.findOne({ email });
-    } else if (userType === "player") {
-      user = await Player.findOne({ email });
-    } else if (userType === "coach") {
-      user = await Coach.findOne({ email });
-    }
+    // Check if user exists in any role
+    let user = await User.findOne({ email });
+    if (!user) user = await Player.findOne({ email });
+    if (!user) user = await Coach.findOne({ email });
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
@@ -45,23 +40,42 @@ router.post("/forgot-password", async (req, res, next) => {
     await ResetCode.create({
       email,
       code,
-      userType,
     });
 
     // Send email
     console.log("Email config:", {
-      user: process.env.SMTP_MAIL,
-      hasPassword: !!process.env.SMTP_PASSWORD,
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      secure: process.env.SMTP_SECURE,
+      user: process.env.SMTP_USER || process.env.SMTP_MAIL,
+      hasPassword: !!(process.env.SMTP_PASSWORD),
       passwordLength: process.env.SMTP_PASSWORD?.length,
+      serviceFallback: !process.env.SMTP_HOST,
     });
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.SMTP_MAIL,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
+    const transporter = nodemailer.createTransport(
+      process.env.SMTP_HOST
+        ? {
+            host: process.env.SMTP_HOST,
+            port: Number(process.env.SMTP_PORT) || 587,
+            secure: (process.env.SMTP_SECURE
+              ? String(process.env.SMTP_SECURE).toLowerCase() === "true"
+              : (Number(process.env.SMTP_PORT) || 587) === 465),
+            auth: process.env.SMTP_USER || process.env.SMTP_MAIL
+              ? {
+                  user: process.env.SMTP_USER || process.env.SMTP_MAIL,
+                  pass: process.env.SMTP_PASSWORD,
+                }
+              : undefined,
+          }
+        : {
+            service: "gmail",
+            auth: {
+              user: process.env.SMTP_MAIL,
+              pass: process.env.SMTP_PASSWORD,
+            },
+          }
+    );
 
     await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Team Manager"} <${process.env.FROM_EMAIL || process.env.SMTP_MAIL}>`,
@@ -99,16 +113,15 @@ router.post("/forgot-password", async (req, res, next) => {
 // Verify Reset Code
 router.post("/verify-reset-code", async (req, res, next) => {
   try {
-    const { email, code, userType } = req.body;
+    const { email, code } = req.body;
 
-    if (!email || !code || !userType) {
-      return res.status(400).json({ success: false, message: "Email, code, and user type are required" });
+    if (!email || !code) {
+      return res.status(400).json({ success: false, message: "Email and code are required" });
     }
 
     const resetCode = await ResetCode.findOne({
       email,
       code,
-      userType,
       used: false,
       expiresAt: { $gt: new Date() },
     });
@@ -129,16 +142,15 @@ router.post("/verify-reset-code", async (req, res, next) => {
 // Reset Password
 router.post("/reset-password", async (req, res, next) => {
   try {
-    const { email, code, newPassword, userType } = req.body;
+    const { email, code, newPassword } = req.body;
 
-    if (!email || !code || !newPassword || !userType) {
-      return res.status(400).json({ success: false, message: "All fields are required" });
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ success: false, message: "Email, code and new password are required" });
     }
 
     const resetCode = await ResetCode.findOne({
       email,
       code,
-      userType,
       used: false,
       expiresAt: { $gt: new Date() },
     });
@@ -151,16 +163,17 @@ router.post("/reset-password", async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    // Update password based on user type
-    if (userType === "admin") {
-      const user = await User.findOne({ email });
-      if (!user) return res.status(404).json({ success: false, message: "User not found" });
-      user.password = newPassword; // Will be hashed by pre-save hook
-      await user.save();
-    } else if (userType === "player") {
+    // Try updating admin, then player, then coach by email
+    const adminUser = await User.findOne({ email });
+    if (adminUser) {
+      adminUser.password = newPassword; // hashed by pre-save hook
+      await adminUser.save();
+    } else if (await Player.findOne({ email })) {
       await Player.findOneAndUpdate({ email }, { password: hashedPassword });
-    } else if (userType === "coach") {
+    } else if (await Coach.findOne({ email })) {
       await Coach.findOneAndUpdate({ email }, { password: hashedPassword });
+    } else {
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
     // Mark code as used

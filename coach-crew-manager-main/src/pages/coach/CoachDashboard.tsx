@@ -59,56 +59,34 @@ const CoachDashboard = () => {
   const fetchCoachData = async () => {
     try {
       setLoading(true);
-      const [coachesRes, groupsRes] = await Promise.all([
-        adminApi.coaches.list(),
-        adminApi.groups.list(),
-      ]);
-      setCoaches(coachesRes.data.coaches || []);
-      setGroups(groupsRes.data.groups || []);
-      
-      // Try coach-auth mode first
-      try {
-        const meRes = await coachApi.myProfile();
-        const me = meRes.data.coach || meRes.data?.data?.coach;
-        if (me?._id) {
-          setMyProfile(me);
-          setSelectedCoachId(me._id);
-          setCoachMode(true);
-          
-          // Load sessions with date range (next 60 days to catch more sessions)
-          const start = format(new Date(), "yyyy-MM-dd");
-          const end = format(addDays(new Date(), 60), "yyyy-MM-dd");
-          const mySessRes = await coachApi.mySessions({ start, end });
-          const data = mySessRes.data;
-          const sessions = data.events || data.sessions || [];
-          console.log("Fetched sessions for coach:", sessions);
-          setAllSessions(sessions);
-          
-          try {
-            const myGroupsRes = await coachApi.myGroups();
-            const gs = myGroupsRes.data.groups || [];
-            setGroups(gs);
-          } catch (_) { /* ignore */ }
-          setLoading(false);
-          return;
-        }
-      } catch (_) {
-        // fall back to admin mode below
+      // Coach-auth flow only: load profile, sessions and groups
+      const meRes = await coachApi.myProfile();
+      const me = meRes.data.coach || meRes.data?.data?.coach;
+      if (!me?._id) {
+        throw new Error("Coach profile not found");
       }
-      
-      // Admin mode fallback
+      setMyProfile(me);
+      setSelectedCoachId(me._id);
+      setCoachMode(true);
+
+      // Load sessions with date range (next 60 days to catch more sessions)
       const start = format(new Date(), "yyyy-MM-dd");
       const end = format(addDays(new Date(), 60), "yyyy-MM-dd");
-      const sessRes = await adminApi.sessions.list({ start, end });
-      const sessions = sessRes.data.events || sessRes.data.sessions || sessRes.data || [];
-      console.log("Fetched sessions (admin mode):", sessions);
+      const mySessRes = await coachApi.mySessions({ start, end });
+      const data = mySessRes.data;
+      const sessions = data.events || data.sessions || [];
       setAllSessions(sessions);
-      const firstId = (coachesRes.data.coaches?.[0]?._id) || "";
-      setSelectedCoachId(firstId);
+
+      // Load groups for this coach
+      try {
+        const myGroupsRes = await coachApi.myGroups();
+        const gs = myGroupsRes.data.groups || [];
+        setGroups(gs);
+      } catch (_) { /* ignore */ }
     } catch (err: any) {
       toast({
         title: "Error",
-        description: err?.response?.data?.message || "Failed to load coach data",
+        description: err?.response?.data?.message || err?.message || "Failed to load coach data",
         variant: "destructive",
       });
       if (err?.response?.status === 401) {
@@ -224,7 +202,7 @@ const CoachDashboard = () => {
     setLoadingPlayers(true);
     
     try {
-      const { data } = await coachApi.sessionRoster(session.id);
+      const { data } = await coachApi.sessionRoster(String(session.id));
       const players = data.players || [];
       setSessionPlayers(players);
       setStatuses(Object.fromEntries(players.map((p: any) => [p._id, 'present'])));

@@ -17,7 +17,6 @@ const ForgotPassword = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [userType, setUserType] = useState<"admin" | "player" | "coach">("admin");
 
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +27,7 @@ const ForgotPassword = () => {
 
     try {
       setLoading(true);
-      await api.post("/api/auth/forgot-password", { email, userType });
+      await api.post("/api/auth/forgot-password", { email });
       toast({
         title: "Success",
         description: "Verification code sent to your email!",
@@ -54,7 +53,7 @@ const ForgotPassword = () => {
 
     try {
       setLoading(true);
-      await api.post("/api/auth/verify-reset-code", { email, code, userType });
+      await api.post("/api/auth/verify-reset-code", { email, code });
       toast({
         title: "Success",
         description: "Code verified! Please set your new password.",
@@ -90,7 +89,7 @@ const ForgotPassword = () => {
 
     try {
       setLoading(true);
-      await api.post("/api/auth/reset-password", { email, code, newPassword, userType });
+      await api.post("/api/auth/reset-password", { email, code, newPassword });
       toast({
         title: "Success",
         description: "Password reset successfully! You can now login.",
@@ -128,36 +127,7 @@ const ForgotPassword = () => {
         <CardContent>
           {step === "email" && (
             <form onSubmit={handleSendCode} className="space-y-4">
-              <div className="space-y-2">
-                <Label>User Type</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  <Button
-                    type="button"
-                    variant={userType === "admin" ? "default" : "outline"}
-                    onClick={() => setUserType("admin")}
-                    className={userType === "admin" ? "bg-gradient-primary" : ""}
-                  >
-                    Admin
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={userType === "player" ? "default" : "outline"}
-                    onClick={() => setUserType("player")}
-                    className={userType === "player" ? "bg-gradient-primary" : ""}
-                  >
-                    Player
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={userType === "coach" ? "default" : "outline"}
-                    onClick={() => setUserType("coach")}
-                    className={userType === "coach" ? "bg-gradient-primary" : ""}
-                  >
-                    Coach
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
+                            <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
